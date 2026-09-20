@@ -1,11 +1,11 @@
 [package]
-name = "bcon"
+name = "ncon"
 version = "1.4.0"
 edition = "2021"
 authors = ["Hironobu Sano"]
 description = "GPU-accelerated terminal emulator for Linux console"
 license = "MIT"
-repository = "https://github.com/sanohiro/bcon"
+repository = "https://github.com/nefinita/ncon"
 keywords = ["terminal", "console", "gpu", "drm", "kms"]
 categories = ["command-line-utilities"]
 

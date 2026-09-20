@@ -1,7 +1,7 @@
 //! DRM hotplug detection
 //!
 //! Monitors udev events for DRM connector changes (monitor plug/unplug).
-//! Integrates with bcon's event loop for real-time hotplug handling.
+//! Integrates with ncon's event loop for real-time hotplug handling.
 
 #![allow(dead_code)]
 

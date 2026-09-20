@@ -1,4 +1,4 @@
-//! Utility functions shared across bcon
+//! Utility functions shared across ncon
 //!
 //! Common helpers that don't fit in specialized modules.
 

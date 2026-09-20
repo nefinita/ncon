@@ -1,5 +1,5 @@
 #!/bin/bash
-# bcon demo script — showcases terminal capabilities
+# ncon demo script — showcases terminal capabilities
 # Usage: ./scripts/demo.sh [--fast] [--no-pause]
 #
 # Designed to be recorded with screen capture for README demo video.
@@ -163,7 +163,7 @@ section "Sixel Graphics"
 if command -v img2sixel &>/dev/null; then
   printf "  (img2sixel available — generating test image...)\n"
   # Create a small PPM gradient
-  TMP_PPM=$(mktemp /tmp/bcon_demo_XXXXXX.ppm)
+  TMP_PPM=$(mktemp /tmp/ncon_demo_XXXXXX.ppm)
   {
     printf "P6\n200 60\n255\n"
     for y in $(seq 0 59); do
@@ -236,7 +236,7 @@ printf "\n"
 printf "  \033[48;2;40;40;50m\033[38;2;150;200;255m Zellij \033[38;2;80;80;100m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ${RESET}\n"
 printf "  \033[48;2;40;40;50m \033[38;2;80;80;100m┌─── Tab 1: dev ──────────────┬─── Tab 2: logs ──────────────┐${RESET}\n"
 printf "  \033[48;2;40;40;50m \033[38;2;80;80;100m│\033[38;2;100;255;100m ~/src\033[38;2;255;255;255m \$ cargo build --release\033[38;2;80;80;100m│\033[38;2;255;200;100m[INFO] Server started on :8080\033[38;2;80;80;100m│${RESET}\n"
-printf "  \033[48;2;40;40;50m \033[38;2;80;80;100m│\033[38;2;80;200;80m   Compiling bcon v0.5.0     \033[38;2;80;80;100m│\033[38;2;180;180;180m[DEBUG] Connection accepted    \033[38;2;80;80;100m│${RESET}\n"
+printf "  \033[48;2;40;40;50m \033[38;2;80;80;100m│\033[38;2;80;200;80m   Compiling ncon v0.5.0     \033[38;2;80;80;100m│\033[38;2;180;180;180m[DEBUG] Connection accepted    \033[38;2;80;80;100m│${RESET}\n"
 printf "  \033[48;2;40;40;50m \033[38;2;80;80;100m│\033[38;2;80;200;80m    Finished in 12.3s        \033[38;2;80;80;100m│\033[38;2;180;180;180m[DEBUG] Request: GET /api/v1   \033[38;2;80;80;100m│${RESET}\n"
 printf "  \033[48;2;40;40;50m \033[38;2;80;80;100m└──────────────────────────────┴──────────────────────────────┘${RESET}\n"
 printf "  \033[48;2;40;40;50m \033[38;2;80;80;100m Ctrl+p ▸ Panes  Ctrl+t ▸ Tabs  Ctrl+s ▸ Scroll  Ctrl+q ▸ Quit${RESET}\n"
@@ -273,9 +273,9 @@ pause
 printf "\n"
 printf "\033[38;2;80;200;120m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
 printf "\n"
-printf "  \033[1;38;2;80;200;120mbcon${RESET} — \033[38;2;180;180;180mBringing modern terminal experience to bare metal Linux${RESET}\n"
+printf "  \033[1;38;2;80;200;120mncon${RESET} — \033[38;2;180;180;180mBringing modern terminal experience to bare metal Linux${RESET}\n"
 printf "\n"
-printf "  \033[38;2;120;120;120m  GitHub : https://github.com/sanohiro/bcon${RESET}\n"
+printf "  \033[38;2;120;120;120m  GitHub : https://github.com/nefinita/ncon${RESET}\n"
 printf "  \033[38;2;120;120;120m  License: MIT${RESET}\n"
 printf "\n"
 printf "\033[38;2;80;200;120m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"

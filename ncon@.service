@@ -1,24 +1,24 @@
-# bcon systemd service file
+# ncon systemd service file
 #
 # Installation:
-#   sudo cp bcon@.service /etc/systemd/system/
-#   sudo cp target/release/bcon /usr/local/bin/
+#   sudo cp ncon@.service /etc/systemd/system/
+#   sudo cp target/release/ncon /usr/local/bin/
 #
 # Enable on tty2:
 #   sudo systemctl disable getty@tty2
-#   sudo systemctl enable bcon@tty2
-#   sudo systemctl start bcon@tty2
+#   sudo systemctl enable ncon@tty2
+#   sudo systemctl start ncon@tty2
 #
 # Configuration:
-#   System config: /etc/bcon/config.toml
-#   Generate with: sudo bcon --init-config=system,vim,jp
+#   System config: /etc/ncon/config.toml
+#   Generate with: sudo ncon --init-config=system,vim,jp
 #
 # Usage:
 #   Switch to tty2 with Ctrl+Alt+F2
 
 [Unit]
-Description=bcon terminal emulator on %I
-Documentation=https://github.com/sanohiro/bcon
+Description=ncon terminal emulator on %I
+Documentation=https://github.com/nefinita/ncon
 After=systemd-user-sessions.service plymouth-quit-wait.service
 After=rc-local.service
 Before=getty@%i.service
@@ -27,9 +27,9 @@ ConditionPathExists=/dev/%I
 
 [Service]
 Type=simple
-Environment=BCON_BACKEND=vt
+Environment=NCON_BACKEND=vt
 Environment=RUST_LOG=info
-ExecStart=/usr/local/bin/bcon
+ExecStart=/usr/local/bin/ncon
 WorkingDirectory=/root
 StandardInput=tty
 StandardOutput=tty

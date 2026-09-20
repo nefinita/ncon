@@ -1,7 +1,7 @@
 //! Configuration file management
 //!
 //! Loads TOML configuration files and provides application settings.
-//! Default config path: ~/.config/bcon/config.toml
+//! Default config path: ~/.config/ncon/config.toml
 
 #![allow(dead_code)]
 
@@ -179,7 +179,7 @@ pub struct TerminalConfig {
     /// TERM environment variable
     pub term_env: String,
     /// Enable fcitx5 IME (Japanese input)
-    /// When true, bcon will auto-start D-Bus session and fcitx5 if needed
+    /// When true, ncon will auto-start D-Bus session and fcitx5 if needed
     pub ime: bool,
     /// List of apps that auto-disable IME
     /// When foreground process name is in this list, IME is automatically disabled
@@ -318,7 +318,7 @@ pub struct KeybindConfig {
     /// Scroll down (default: "shift+pagedown")
     #[serde(deserialize_with = "deserialize_keybind")]
     pub scroll_down: Vec<String>,
-    /// IME toggle (default: "ctrl+shift+j") - enable/disable IME at bcon level
+    /// IME toggle (default: "ctrl+shift+j") - enable/disable IME at ncon level
     #[serde(deserialize_with = "deserialize_keybind")]
     pub ime_toggle: Vec<String>,
     /// Reset terminal modes (default: "ctrl+shift+escape") - reset enhanced input modes
@@ -470,9 +470,9 @@ impl Default for PathConfig {
         // Clipboard path is unique per instance
         let pid = std::process::id();
         let clipboard_file = if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-            format!("{}/bcon_clipboard_{}", runtime_dir, pid)
+            format!("{}/ncon_clipboard_{}", runtime_dir, pid)
         } else {
-            format!("/tmp/bcon_clipboard_{}", pid)
+            format!("/tmp/ncon_clipboard_{}", pid)
         };
 
         Self {
@@ -637,7 +637,7 @@ pub struct SecurityConfig {
     /// When enabled, temp file paths are restricted to /tmp/ and /dev/shm/.
     /// Set to false to restrict to direct base64 transfer (t=d) only.
     ///
-    /// NOTE: bcon runs as root for DRM access, so t=f can read any file.
+    /// NOTE: ncon runs as root for DRM access, so t=f can read any file.
     /// This is the same trust model as kitty/foot/other terminal emulators.
     /// If you want to harden against malicious escape sequences, set to false.
     pub allow_kitty_remote: bool,
@@ -872,14 +872,14 @@ fn parse_layer(path: &std::path::Path) -> Result<toml::Value> {
 ///
 /// Decoupled from the preset list (`vim`/`emacs`/`jp`) so that the caller
 /// must declare the destination explicitly and cannot accidentally route a
-/// `sudo bcon --init-config=vim` invocation to `/root/.config/bcon/`. The
+/// `sudo ncon --init-config=vim` invocation to `/root/.config/ncon/`. The
 /// previous string-based dispatch silently routed by `dirs::config_dir()`
 /// of the calling user, which produced the root-shadow trap.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteTarget {
-    /// User config: `dirs::config_dir().join("bcon/config.toml")`.
+    /// User config: `dirs::config_dir().join("ncon/config.toml")`.
     User,
-    /// System config: `/etc/bcon/config.toml`.
+    /// System config: `/etc/ncon/config.toml`.
     System,
     /// An explicit absolute path (debug / test / unusual deployments).
     Path(std::path::PathBuf),
@@ -907,7 +907,7 @@ fn expand_tilde(s: &str) -> std::path::PathBuf {
 /// (`default`, `vim`, `emacs`, `japanese`/`jp`). When the first token is
 /// not a target token, the destination defaults to `User` so that the
 /// legacy form `--init-config=vim,jp` keeps writing to
-/// `~/.config/bcon/config.toml`.
+/// `~/.config/ncon/config.toml`.
 pub fn parse_init_config_arg(arg: &str) -> (WriteTarget, Vec<String>) {
     let tokens: Vec<&str> = arg
         .split(',')
@@ -930,30 +930,30 @@ pub fn parse_init_config_arg(arg: &str) -> (WriteTarget, Vec<String>) {
 
 impl Config {
     /// System-wide config path
-    const SYSTEM_CONFIG_PATH: &'static str = "/etc/bcon/config.toml";
+    const SYSTEM_CONFIG_PATH: &'static str = "/etc/ncon/config.toml";
 
     /// Load configuration file
     ///
     /// Get the path that would be used for loading config
     /// Returns None if using built-in defaults
     pub fn config_path() -> Option<std::path::PathBuf> {
-        // 1. BCON_CONFIG environment variable
-        if let Ok(path) = std::env::var("BCON_CONFIG") {
+        // 1. NCON_CONFIG environment variable
+        if let Ok(path) = std::env::var("NCON_CONFIG") {
             let p = std::path::Path::new(&path);
             if p.exists() {
                 return Some(p.to_path_buf());
             }
         }
 
-        // 2. User config: ~/.config/bcon/config.toml
+        // 2. User config: ~/.config/ncon/config.toml
         if let Some(config_dir) = dirs::config_dir() {
-            let config_path = config_dir.join("bcon").join("config.toml");
+            let config_path = config_dir.join("ncon").join("config.toml");
             if config_path.exists() {
                 return Some(config_path);
             }
         }
 
-        // 3. System config: /etc/bcon/config.toml
+        // 3. System config: /etc/ncon/config.toml
         let system_config = std::path::Path::new(Self::SYSTEM_CONFIG_PATH);
         if system_config.exists() {
             return Some(system_config.to_path_buf());
@@ -965,33 +965,33 @@ impl Config {
     /// Load configuration using the layered XDG model.
     ///
     /// Resolution order:
-    /// 1. `BCON_CONFIG` environment variable, if set and the file exists,
+    /// 1. `NCON_CONFIG` environment variable, if set and the file exists,
     ///    is loaded as a single-file bypass (no merge with other layers).
     ///    Intended for debugging and testing — the override is exclusive.
     /// 2. Otherwise the layered merge applies: built-in defaults are
-    ///    overlaid first by `/etc/bcon/config.toml` (site default,
+    ///    overlaid first by `/etc/ncon/config.toml` (site default,
     ///    typically installed by the package manager) and then by
-    ///    `~/.config/bcon/config.toml` (per-user override). Tables merge
+    ///    `~/.config/ncon/config.toml` (per-user override). Tables merge
     ///    recursively; scalars and arrays are replaced wholesale by the
     ///    later layer. See [`Config::load_layered_from_paths`] for the
     ///    pure form used by tests.
     pub fn load() -> Self {
-        if let Ok(p) = std::env::var("BCON_CONFIG") {
+        if let Ok(p) = std::env::var("NCON_CONFIG") {
             let path = std::path::Path::new(&p);
             if path.exists() {
                 match Self::load_from_file(&p) {
                     Ok(c) => {
-                        info!("BCON_CONFIG override (bypassing layered merge): {}", p);
+                        info!("NCON_CONFIG override (bypassing layered merge): {}", p);
                         return c;
                     }
-                    Err(e) => warn!("BCON_CONFIG load failed ({}): {}", p, e),
+                    Err(e) => warn!("NCON_CONFIG load failed ({}): {}", p, e),
                 }
             } else {
-                warn!("BCON_CONFIG points to non-existent path: {}", p);
+                warn!("NCON_CONFIG points to non-existent path: {}", p);
             }
         }
 
-        let user_path = dirs::config_dir().map(|d| d.join("bcon").join("config.toml"));
+        let user_path = dirs::config_dir().map(|d| d.join("ncon").join("config.toml"));
         Self::load_layered_from_paths(
             std::path::Path::new(Self::SYSTEM_CONFIG_PATH),
             user_path.as_deref(),
@@ -1001,8 +1001,8 @@ impl Config {
     /// Load configuration by merging multiple layers in priority order:
     ///
     /// 1. Builtin defaults from [`Config::default`] (always present).
-    /// 2. System layer at `system` path (e.g. `/etc/bcon/config.toml`).
-    /// 3. User layer at `user` path (e.g. `~/.config/bcon/config.toml`).
+    /// 2. System layer at `system` path (e.g. `/etc/ncon/config.toml`).
+    /// 3. User layer at `user` path (e.g. `~/.config/ncon/config.toml`).
     ///
     /// Each successive layer overlays its keys on top of the merged tree using
     /// [`merge_value`]: tables merge recursively, while scalars, arrays, and
@@ -1012,7 +1012,7 @@ impl Config {
     ///
     /// This function takes explicit paths instead of resolving them itself so
     /// it can be unit-tested with `tempfile::tempdir()`. The production
-    /// dispatcher that wires `BCON_CONFIG` and XDG paths into this entry
+    /// dispatcher that wires `NCON_CONFIG` and XDG paths into this entry
     /// point will be added in a follow-up cycle; until then, callers like
     /// [`Config::load`] still use the first-found-exclusive path.
     pub(crate) fn load_layered_from_paths(
@@ -1041,8 +1041,8 @@ impl Config {
         } else {
             warn!(
                 "System config not found at {}. Running with builtin defaults only. \
-                 If you installed bcon via a package manager, please reinstall. \
-                 Otherwise create it with: sudo bcon --init-config=system",
+                 If you installed ncon via a package manager, please reinstall. \
+                 Otherwise create it with: sudo ncon --init-config=system",
                 system.display()
             );
         }
@@ -1073,7 +1073,7 @@ impl Config {
     }
 
     /// Serialize `Config::default()` to a TOML string suitable for installation
-    /// at `/etc/bcon/config.toml` by package distributors.
+    /// at `/etc/ncon/config.toml` by package distributors.
     ///
     /// Maintainers should use this output as the byte-identical content of
     /// the package-shipped site-default config so that the runtime merge
@@ -1098,7 +1098,7 @@ impl Config {
     /// Write a config template to disk for the given target and preset list.
     ///
     /// `target` decides where the file is written (`User` =
-    /// `~/.config/bcon/config.toml`, `System` = `/etc/bcon/config.toml`,
+    /// `~/.config/ncon/config.toml`, `System` = `/etc/ncon/config.toml`,
     /// or an explicit `Path`). `presets` are the keybind/font preset
     /// names (`default`, `vim`, `emacs`, `japanese`/`jp`). The target is
     /// no longer mixed into the preset list; callers obtain a parsed
@@ -1109,16 +1109,16 @@ impl Config {
     ) -> Result<PathBuf> {
         let config_path = match target {
             WriteTarget::System => {
-                let system_dir = std::path::Path::new("/etc/bcon");
+                let system_dir = std::path::Path::new("/etc/ncon");
                 std::fs::create_dir_all(system_dir)?;
                 system_dir.join("config.toml")
             }
             WriteTarget::User => {
                 let config_dir = dirs::config_dir()
                     .ok_or_else(|| anyhow::anyhow!("Config directory not found"))?;
-                let bcon_dir = config_dir.join("bcon");
-                std::fs::create_dir_all(&bcon_dir)?;
-                bcon_dir.join("config.toml")
+                let ncon_dir = config_dir.join("ncon");
+                std::fs::create_dir_all(&ncon_dir)?;
+                ncon_dir.join("config.toml")
             }
             WriteTarget::Path(p) => {
                 if let Some(parent) = p.parent() {
@@ -1155,8 +1155,8 @@ impl Config {
         };
 
         let config_path_display = match target {
-            WriteTarget::System => "/etc/bcon/config.toml".to_string(),
-            WriteTarget::User => "~/.config/bcon/config.toml".to_string(),
+            WriteTarget::System => "/etc/ncon/config.toml".to_string(),
+            WriteTarget::User => "~/.config/ncon/config.toml".to_string(),
             WriteTarget::Path(p) => p.display().to_string(),
         };
 
@@ -1214,12 +1214,12 @@ ime_disabled_apps = ["vim", "nvim", "vi", "vimdiff", "emacs", "nano", "less", "m
         };
 
         let template = format!(
-            r#"# bcon configuration file
+            r#"# ncon configuration file
 # Config path: {config_path_display}
 # Keybind preset: {preset_name}
 #
 # Font settings are commented out by default.
-# bcon will automatically find system fonts via fontconfig.
+# ncon will automatically find system fonts via fontconfig.
 # You can specify fonts by family name (e.g. "FiraCode") or file path.
 
 [keybinds]
@@ -1228,7 +1228,7 @@ ime_disabled_apps = ["vim", "nvim", "vi", "vimdiff", "emacs", "nano", "less", "m
 # =============================================================================
 # Font Configuration (Optional)
 # =============================================================================
-# By default, bcon automatically finds fonts via fontconfig.
+# By default, ncon automatically finds fonts via fontconfig.
 # Uncomment and customize if you want to use specific fonts.
 #
 # You can specify fonts by family name OR file path:
@@ -1391,11 +1391,11 @@ ime_disabled_apps = ["vim", "nvim", "vi", "vimdiff", "emacs", "nano", "less", "m
     /// Get the config file path for a given write target (without writing).
     pub fn path_for_target(target: &WriteTarget) -> Result<PathBuf> {
         match target {
-            WriteTarget::System => Ok(std::path::Path::new("/etc/bcon").join("config.toml")),
+            WriteTarget::System => Ok(std::path::Path::new("/etc/ncon").join("config.toml")),
             WriteTarget::User => {
                 let config_dir = dirs::config_dir()
                     .ok_or_else(|| anyhow::anyhow!("Config directory not found"))?;
-                Ok(config_dir.join("bcon").join("config.toml"))
+                Ok(config_dir.join("ncon").join("config.toml"))
             }
             WriteTarget::Path(p) => Ok(p.clone()),
         }
@@ -1632,7 +1632,7 @@ impl ConfigWatcher {
 
 /// Get default config file path
 pub fn default_config_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("bcon").join("config.toml"))
+    dirs::config_dir().map(|d| d.join("ncon").join("config.toml"))
 }
 
 /// Detect Nerd Font path by checking common installation locations
@@ -1789,8 +1789,8 @@ lcd_weights = [10, 20, 30, 40, 50]
         use std::fs;
 
         let tmp = tempfile::tempdir().expect("tempdir must succeed");
-        let system_path = tmp.path().join("etc-bcon-config.toml");
-        let user_path = tmp.path().join("user-bcon-config.toml");
+        let system_path = tmp.path().join("etc-ncon-config.toml");
+        let user_path = tmp.path().join("user-ncon-config.toml");
 
         fs::write(&system_path, "[font]\nsize = 20\n").unwrap();
         fs::write(&user_path, "[font]\nsize = 24\n").unwrap();
@@ -1818,7 +1818,7 @@ lcd_weights = [10, 20, 30, 40, 50]
         // provided), the loader must degrade gracefully to builtin defaults.
         // No panic, no error return — just `Config::default()` equivalents.
         let tmp = tempfile::tempdir().expect("tempdir must succeed");
-        let system_path = tmp.path().join("nonexistent-etc-bcon-config.toml");
+        let system_path = tmp.path().join("nonexistent-etc-ncon-config.toml");
         assert!(!system_path.exists(), "precondition: system path must not exist");
 
         let cfg = Config::load_layered_from_paths(&system_path, None);
@@ -1864,8 +1864,8 @@ lcd_weights = [10, 20, 30, 40, 50]
     }
 
     #[test]
-    fn test_load_bcon_config_env_bypasses_layers() {
-        // BCON_CONFIG, when set and pointing to an existing file, must bypass
+    fn test_load_ncon_config_env_bypasses_layers() {
+        // NCON_CONFIG, when set and pointing to an existing file, must bypass
         // the layered merge entirely and load that single file. Other layers
         // (system /etc, user ~/.config) are deliberately ignored even if they
         // exist. This is the debug/test override semantics.
@@ -1880,25 +1880,25 @@ lcd_weights = [10, 20, 30, 40, 50]
         let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
 
         let tmp = tempfile::tempdir().expect("tempdir must succeed");
-        let bcon_config = tmp.path().join("override.toml");
-        fs::write(&bcon_config, "[font]\nsize = 99\n").unwrap();
+        let ncon_config = tmp.path().join("override.toml");
+        fs::write(&ncon_config, "[font]\nsize = 99\n").unwrap();
 
-        let prev = std::env::var_os("BCON_CONFIG");
-        std::env::set_var("BCON_CONFIG", &bcon_config);
+        let prev = std::env::var_os("NCON_CONFIG");
+        std::env::set_var("NCON_CONFIG", &ncon_config);
 
         let cfg = Config::load();
 
         if let Some(p) = prev {
-            std::env::set_var("BCON_CONFIG", p);
+            std::env::set_var("NCON_CONFIG", p);
         } else {
-            std::env::remove_var("BCON_CONFIG");
+            std::env::remove_var("NCON_CONFIG");
         }
 
-        // BCON_CONFIG file's font.size = 99 must win even though no system or
+        // NCON_CONFIG file's font.size = 99 must win even though no system or
         // user layer was set up; default for everything else stays builtin.
         assert!(
             (cfg.font.size - 99.0).abs() < f32::EPSILON,
-            "BCON_CONFIG must bypass layers and override font.size, got {}",
+            "NCON_CONFIG must bypass layers and override font.size, got {}",
             cfg.font.size
         );
     }
@@ -1909,7 +1909,7 @@ lcd_weights = [10, 20, 30, 40, 50]
         // cleanly back into a Config equivalent to Config::default(). This
         // is the upstream-side check that protects distributors against
         // silent drift between the Default impl and any package-shipped
-        // /etc/bcon/config.toml template.
+        // /etc/ncon/config.toml template.
         let rendered = Config::default_template();
         let parsed: Config = toml::from_str(&rendered)
             .expect("default_template output must round-trip through toml::from_str");
@@ -1996,14 +1996,14 @@ lcd_weights = [10, 20, 30, 40, 50]
     fn test_expand_tilde_basics() {
         // Bare absolute path passes through.
         assert_eq!(
-            expand_tilde("/etc/bcon/config.toml"),
-            std::path::PathBuf::from("/etc/bcon/config.toml")
+            expand_tilde("/etc/ncon/config.toml"),
+            std::path::PathBuf::from("/etc/ncon/config.toml")
         );
 
         // ~/foo gets the home directory prepended (when one is detectable).
         if let Some(home) = dirs::home_dir() {
-            assert_eq!(expand_tilde("~/.config/bcon/config.toml"),
-                       home.join(".config/bcon/config.toml"));
+            assert_eq!(expand_tilde("~/.config/ncon/config.toml"),
+                       home.join(".config/ncon/config.toml"));
         }
     }
 }

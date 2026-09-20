@@ -1,9 +1,9 @@
 services:
-  bcon:
+  ncon:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: bcon-dev
+    container_name: ncon-dev
     # DRMデバイスへのアクセス（Linuxホストで実行時のみ有効）
     # devices:
     #   - /dev/dri:/dev/dri

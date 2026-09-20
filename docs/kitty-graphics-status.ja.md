@@ -1,12 +1,12 @@
 # Kitty Graphics Protocol — 実装状況
 
-bcon の [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) 実装状況を他のターミナルと比較します。
+ncon の [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) 実装状況を他のターミナルと比較します。
 
 最終更新: 2026-03-31 (v1.3.0)
 
 ## 転送モード
 
-| モード | キー | bcon | kitty | Ghostty | WezTerm |
+| モード | キー | ncon | kitty | Ghostty | WezTerm |
 |--------|------|------|-------|---------|---------|
 | Direct (base64インライン) | `t=d` | Yes | Yes | Yes | Yes |
 | ファイルパス | `t=f` | Yes | Yes | Yes | Yes |
@@ -17,7 +17,7 @@ bcon の [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-prot
 
 ## アクション
 
-| アクション | キー | bcon | kitty | Ghostty | WezTerm |
+| アクション | キー | ncon | kitty | Ghostty | WezTerm |
 |-----------|------|------|-------|---------|---------|
 | 送信のみ | `a=t` | Yes | Yes | Yes | Yes |
 | 送信+表示 | `a=T` | Yes | Yes | Yes | Yes |
@@ -30,7 +30,7 @@ bcon の [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-prot
 
 ## 削除ターゲット (`a=d`)
 
-| 対象 | キー | bcon | kitty | Ghostty | WezTerm |
+| 対象 | キー | ncon | kitty | Ghostty | WezTerm |
 |------|------|------|-------|---------|---------|
 | 全画像 | `d=a/A` | Yes | Yes | Yes | Yes |
 | ID指定 | `d=i/I` | Yes | Yes | Yes | Yes |
@@ -45,7 +45,7 @@ bcon の [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-prot
 
 ## 画像管理
 
-| 機能 | bcon | kitty | Ghostty | WezTerm |
+| 機能 | ncon | kitty | Ghostty | WezTerm |
 |------|------|-------|---------|---------|
 | ストレージ方式 | テクスチャキャッシュ (HashMap) | アウトオブバンド (verstable hashmap) | アウトオブバンド (Pin追跡) | セル付加方式 |
 | スクロール追跡 | Yes (絶対行座標) | Yes (行オフセット) | Yes (Pin) | Yes (セル内蔵) |
@@ -56,7 +56,7 @@ bcon の [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-prot
 
 ## 画像フォーマット
 
-| フォーマット | キー | bcon | kitty | Ghostty | WezTerm |
+| フォーマット | キー | ncon | kitty | Ghostty | WezTerm |
 |-------------|------|------|-------|---------|---------|
 | RGBA (32bpp) | `f=32` | Yes | Yes | Yes | Yes |
 | RGB (24bpp) | `f=24` | Yes | Yes | Yes | Yes |
@@ -64,7 +64,7 @@ bcon の [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-prot
 
 ## その他の機能
 
-| 機能 | bcon | kitty | Ghostty | WezTerm |
+| 機能 | ncon | kitty | Ghostty | WezTerm |
 |------|------|-------|---------|---------|
 | チャンク転送 (`m=1`) | Yes | Yes | Yes | Yes |
 | zlib圧縮 (`o=z`) | Yes | Yes | Yes | Yes |
@@ -80,7 +80,7 @@ bcon の [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-prot
 
 ## テストスイート
 
-bcon 上でテストを実行:
+ncon 上でテストを実行:
 
 ```bash
 python3 tests/generate-test-images.py

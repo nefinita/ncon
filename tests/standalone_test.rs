@@ -2,7 +2,7 @@
 //! Selection と base64 のスタンドアロンテスト
 //! macOS でも実行可能（Linux 依存なし）
 //!
-//! 実行: rustc tests/standalone_test.rs -o /tmp/bcon_test && /tmp/bcon_test
+//! 実行: rustc tests/standalone_test.rs -o /tmp/ncon_test && /tmp/ncon_test
 
 fn main() {
     test_base64_encode();

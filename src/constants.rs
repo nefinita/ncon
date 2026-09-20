@@ -1,4 +1,4 @@
-//! Global constants for bcon
+//! Global constants for ncon
 //!
 //! Consolidates timing, rendering, and Unicode range constants
 //! to eliminate magic numbers throughout the codebase.

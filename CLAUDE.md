@@ -12,7 +12,7 @@ Commits are fine. Push/tag requires explicit instruction like "push it" or "rele
 
 ## Project Overview
 
-**bcon** - A GPU-accelerated terminal emulator running directly on Linux console (TTY) without X11/Wayland.
+**ncon** - A GPU-accelerated terminal emulator running directly on Linux console (TTY) without X11/Wayland.
 
 Think "Ghostty for the console" - bringing modern terminal features (True Color, Sixel, GPU rendering) to bare metal Linux.
 
@@ -25,15 +25,15 @@ Think "Ghostty for the console" - bringing modern terminal features (True Color,
 
 ## Design Philosophy
 
-**bcon = GPU レンダリング基盤 + 内蔵ペイン分割・タブ**
+**ncon = GPU レンダリング基盤 + 内蔵ペイン分割・タブ**
 
 - 画面分割・タブは内蔵（tmux/zellij は Kitty graphics パススルーを壊すため）
 - セッション永続化が必要な場合は tmux / screen を併用可能
-- bcon が提供するのは：美しく、ヌルヌル動く、モダンなターミナル体験
+- ncon が提供するのは：美しく、ヌルヌル動く、モダンなターミナル体験
 
 ```
 ┌─────────────────────────────────┐
-│  bcon                          │  ← GPU レンダリング + ペイン/タブ
+│  ncon                          │  ← GPU レンダリング + ペイン/タブ
 ├─────────────────────────────────┤
 │  DRM/KMS + OpenGL ES           │  ← ハードウェア
 └─────────────────────────────────┘
@@ -43,7 +43,7 @@ Think "Ghostty for the console" - bringing modern terminal features (True Color,
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                        bcon                             │
+│                        ncon                             │
 ├─────────────────────────────────────────────────────────┤
 │  VT Parser      │ ANSI/DEC escape sequences, Sixel     │
 │  Text Shaping   │ rustybuzz (HarfBuzz compatible)      │
@@ -96,11 +96,11 @@ Think "Ghostty for the console" - bringing modern terminal features (True Color,
 - URL detection with Ctrl+Click
 
 ### Configuration
-- TOML-based configuration with layered XDG merge: built-in defaults → `/etc/bcon/config.toml` → `~/.config/bcon/config.toml` (tables merge recursively, scalars/arrays replace)
-- `BCON_CONFIG` env var bypasses the merge for single-file debugging
+- TOML-based configuration with layered XDG merge: built-in defaults → `/etc/ncon/config.toml` → `~/.config/ncon/config.toml` (tables merge recursively, scalars/arrays replace)
+- `NCON_CONFIG` env var bypasses the merge for single-file debugging
 - Configurable keybinds (multiple keys per action)
 - Preset support: `default`, `vim`, `emacs`, `japanese`/`jp`
-- `--init-config=[user|system|<path>,]preset[,preset...]` chooses the target explicitly; legacy `--init-config=vim,jp` still writes to `~/.config/bcon/config.toml`
+- `--init-config=[user|system|<path>,]preset[,preset...]` chooses the target explicitly; legacy `--init-config=vim,jp` still writes to `~/.config/ncon/config.toml`
 
 ## File Structure
 
@@ -147,7 +147,7 @@ src/
 
 ## Rendering Philosophy
 
-**美しく、見やすく、速く。** これが bcon のレンダリングの最優先原則。
+**美しく、見やすく、速く。** これが ncon のレンダリングの最優先原則。
 
 ### 鮮明さ（ぼやけ防止）
 - グリフの頂点座標は必ず **整数ピクセルに丸める** (`.round()`)
@@ -247,7 +247,7 @@ cargo build --release
 
 # Switch to TTY2 and run
 sudo chvt 2
-sudo ./target/release/bcon
+sudo ./target/release/ncon
 
 # Return to graphical session
 sudo chvt 1  # or 7

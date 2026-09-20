@@ -1,8 +1,11 @@
-# bcon
+# ncon
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/sanohiro/bcon/actions/workflows/ci.yml/badge.svg)](https://github.com/sanohiro/bcon/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/sanohiro/bcon)](https://github.com/sanohiro/bcon/releases/latest)
+[![CI](https://github.com/nefinita/ncon/actions/workflows/ci.yml/badge.svg)](https://github.com/nefinita/ncon/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/nefinita/ncon)](https://github.com/nefinita/ncon/releases/latest)
+
+> **ncon** は [Nefinita](https://github.com/nefinita) シリーズの一員で、[bcon](https://github.com/sanohiro/bcon)（MIT, © 2024-2026 sanohiro）からフォークしたものです。
+> 以下のパッケージ導入・インストール手順は現時点では上流プロジェクトを参照しています。ncon はまだパッケージ配布していないため、`cargo build --release` でビルドしてください。
 
 Linux コンソール (TTY) 用 GPU アクセラレーション対応ターミナルエミュレータ — X11/Wayland 不要
 
@@ -13,25 +16,25 @@ Linux コンソール (TTY) 用 GPU アクセラレーション対応ターミ�
 - **内蔵ペイン分割 & タブ** — tmux 不要、グラフィックスパススルー問題なし
 - **日本語入力** — D-Bus 経由の fcitx5 統合、ベアコンソールで動作
 
-![bcon — Linux TTY 上で Claude Code、yazi（画像プレビュー付き）、vim を分割ペインで表示](demo/screenshot-split-panes.png)
+![ncon — Linux TTY 上で Claude Code、yazi（画像プレビュー付き）、vim を分割ペインで表示](demo/screenshot-split-panes.png)
 
-## なぜ bcon？
+## なぜ ncon？
 
 AI コーディングツール（Claude Code、Codex、Gemini CLI など）の登場により、開発ワークフローは大きく変わりました。VSCode を開く機会は減り、ターミナルで過ごす時間が増えています。
 
 ふと気づくと、X11/Wayland 上で動かしているのはターミナルエミュレータだけ — それなら、デスクトップ環境ごと省略できるのでは？
 
-**bcon** はその答えです。Ghostty や Alacritty のようなモダンなターミナル体験を、Linux コンソール上で直接実現します。GPU アクセラレーション、True Color、Sixel/Kitty グラフィックス、日本語入力 — X11 なしで。
+**ncon** はその答えです。Ghostty や Alacritty のようなモダンなターミナル体験を、Linux コンソール上で直接実現します。GPU アクセラレーション、True Color、Sixel/Kitty グラフィックス、日本語入力 — X11 なしで。
 
-### bcon の役割
+### ncon の役割
 
-bcon は**画面分割とタブを内蔵**しています — 基本的なマルチプレクシングに tmux や screen は不要です。ターミナルマルチプレクサは Kitty graphics protocol のパススルーを壊すことが多く、bcon の画像表示機能が活かせなくなるため、内蔵分割が重要です。
+ncon は**画面分割とタブを内蔵**しています — 基本的なマルチプレクシングに tmux や screen は不要です。ターミナルマルチプレクサは Kitty graphics protocol のパススルーを壊すことが多く、ncon の画像表示機能が活かせなくなるため、内蔵分割が重要です。
 
 **楽しい CLI ライフを。**
 
 | | 実 TTY | GPU アクセラレーション | Kitty graphics | IME | 画面分割 |
 |---|:---:|:---:|:---:|:---:|:---:|
-| **bcon** | Yes | Yes | Yes | Yes | 内蔵 |
+| **ncon** | Yes | Yes | Yes | Yes | 内蔵 |
 | kitty / alacritty / ghostty | No (X11/Wayland 必須) | Yes | ツールによる | デスクトップ IME | ツールによる |
 | tmux / screen | Yes | No | パススルー制約あり | N/A | Yes |
 
@@ -111,11 +114,11 @@ sudo apt install bcon
 #    詳細: docs/configuration.md#nerd-fonts-icons
 
 # 3. 設定生成 & サービス有効化
-sudo bcon --init-config=system,vim,jp  # または: system,emacs,jp / system,jp
+sudo ncon --init-config=system,vim,jp  # または: system,emacs,jp / system,jp
 sudo systemctl disable getty@tty2
-sudo systemctl enable --now bcon@tty2
+sudo systemctl enable --now ncon@tty2
 
-# 4. bcon に切り替え: Ctrl+Alt+F2
+# 4. ncon に切り替え: Ctrl+Alt+F2
 ```
 
 ## ドキュメント
@@ -133,7 +136,7 @@ sudo systemctl enable --now bcon@tty2
 
 ## 制限事項
 
-- **マルチシート (DRM リース)**: 非対応。bcon は GPU を排他的に使用します。
+- **マルチシート (DRM リース)**: 非対応。ncon は GPU を排他的に使用します。
 - **マルチモニタ**: 現在は1つのモニタにのみ出力。
 
 ## ライセンス

@@ -62,9 +62,9 @@ const MAX_APC_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 fn default_clipboard_path() -> String {
     let pid = std::process::id();
     if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
-        format!("{}/bcon_clipboard_{}", runtime_dir, pid)
+        format!("{}/ncon_clipboard_{}", runtime_dir, pid)
     } else {
-        format!("/tmp/bcon_clipboard_{}", pid)
+        format!("/tmp/ncon_clipboard_{}", pid)
     }
 }
 
@@ -841,7 +841,7 @@ impl Terminal {
         trace!("PTY read: {} bytes", n);
 
         // Slow path is needed when we're inside (or about to enter) an APC
-        // or DCS sequence that bcon handles directly (bypassing vte).
+        // or DCS sequence that ncon handles directly (bypassing vte).
         let needs_slow = matches!(
             self.apc_state,
             ApcState::Escape
@@ -1194,7 +1194,7 @@ impl Terminal {
                             }
                         }
                         'n' | 'N' => {
-                            // Delete by image number — bcon uses id as number
+                            // Delete by image number — ncon uses id as number
                             self.grid.image_placements.retain(|p| p.id != id);
                             if free_data {
                                 self.images.remove(id);

@@ -642,14 +642,14 @@ impl GlyphAtlas {
 /// Search and load system monospace font
 ///
 /// Search order:
-/// 1. BCON_FONT environment variable (file path)
+/// 1. NCON_FONT environment variable (file path)
 /// 2. fontconfig (automatic best-match selection)
 pub fn load_system_font() -> Result<Vec<u8>> {
-    // Custom font can be specified via BCON_FONT environment variable
-    if let Ok(path) = std::env::var("BCON_FONT") {
+    // Custom font can be specified via NCON_FONT environment variable
+    if let Ok(path) = std::env::var("NCON_FONT") {
         let data = std::fs::read(&path)
-            .map_err(|e| anyhow!("Failed to load BCON_FONT: {} ({})", path, e))?;
-        info!("Font loaded: {} (BCON_FONT)", path);
+            .map_err(|e| anyhow!("Failed to load NCON_FONT: {} ({})", path, e))?;
+        info!("Font loaded: {} (NCON_FONT)", path);
         return Ok(data);
     }
 
@@ -659,7 +659,7 @@ pub fn load_system_font() -> Result<Vec<u8>> {
     }
 
     Err(anyhow!(
-        "Monospace font not found. Install a monospace font (e.g. fonts-dejavu-core) or set BCON_FONT."
+        "Monospace font not found. Install a monospace font (e.g. fonts-dejavu-core) or set NCON_FONT."
     ))
 }
 

@@ -89,7 +89,7 @@ pub fn setup_panic_hook() {
             unsafe { libc::ioctl(fd, VT_SETMODE, &mode) };
         }
         // Print panic info to stderr so it's visible on the restored console
-        eprintln!("[bcon] PANIC: {}", info);
+        eprintln!("[ncon] PANIC: {}", info);
         prev(info);
     }));
 }
@@ -902,7 +902,7 @@ impl Drop for Device {
 /// When systemd starts a service with TTYPath=/dev/ttyN, stdin will be
 /// connected to that tty, allowing us to determine the target VT.
 pub fn get_target_vt() -> Option<u16> {
-    // Prefer systemd instance if present (e.g., bcon@tty2.service -> "tty2")
+    // Prefer systemd instance if present (e.g., ncon@tty2.service -> "tty2")
     if let Ok(instance) = std::env::var("SYSTEMD_INSTANCE") {
         if let Some(num_str) = instance.strip_prefix("tty") {
             if let Ok(vt) = num_str.parse::<u16>() {
@@ -915,7 +915,7 @@ pub fn get_target_vt() -> Option<u16> {
 
     // Fallback: parse SYSTEMD_UNIT if instance isn't available
     if let Ok(unit) = std::env::var("SYSTEMD_UNIT") {
-        // Example: "bcon@tty2.service"
+        // Example: "ncon@tty2.service"
         if let Some(at) = unit.find('@') {
             let rest = &unit[at + 1..];
             if let Some(dot) = rest.find('.') {

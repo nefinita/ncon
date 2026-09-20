@@ -2,12 +2,15 @@
 
 English | **[Japanese](installation.ja.md)**
 
+> **Note:** This guide installs the upstream **bcon** from its Debian repository for now.
+> ncon is not published as a Debian package yet — build from source with `cargo build --release`.
+
 ## Basic Setup (Debian/Ubuntu)
 
 For Japanese environment, see [Japanese Environment Setup](#japanese-environment-setup) below.
 
 ```bash
-# 1. Install bcon
+# 1. Install bcon (upstream)
 curl -fsSL https://sanohiro.github.io/bcon/install.sh | sudo sh
 sudo apt install bcon
 
@@ -20,29 +23,29 @@ sudo tar xf Hack.tar.xz && sudo rm Hack.tar.xz
 sudo fc-cache -fv
 
 # 3. Generate config file (auto-detects Nerd Font if installed)
-sudo bcon --init-config=system           # Default keybinds
-sudo bcon --init-config=system,vim       # Vim-like keybinds
-sudo bcon --init-config=system,emacs     # Emacs-like keybinds
+sudo ncon --init-config=system           # Default keybinds
+sudo ncon --init-config=system,vim       # Vim-like keybinds
+sudo ncon --init-config=system,emacs     # Emacs-like keybinds
 
 # 4. Enable systemd service (tty2)
 sudo systemctl disable getty@tty2
-sudo systemctl enable bcon@tty2
-sudo systemctl start bcon@tty2
+sudo systemctl enable ncon@tty2
+sudo systemctl start ncon@tty2
 
-# 5. Switch to bcon
+# 5. Switch to ncon
 # Ctrl+Alt+F2
 ```
 
 ## Japanese Environment Setup
 
 ```bash
-# 1. Install bcon and Japanese packages
+# 1. Install bcon (upstream) and Japanese packages
 curl -fsSL https://sanohiro.github.io/bcon/install.sh | sudo sh
 sudo apt install bcon fonts-noto-cjk fonts-noto-color-emoji
 
 # Minimal fcitx5 install (recommended)
 # Standard fcitx5 pulls in many Qt/GTK GUI modules.
-# bcon runs without X11/Wayland, so GUI is unnecessary.
+# ncon runs without X11/Wayland, so GUI is unnecessary.
 # Use --no-install-recommends for minimal footprint.
 sudo apt install --no-install-recommends fcitx5 fcitx5-mozc
 
@@ -55,16 +58,16 @@ sudo tar xf Hack.tar.xz && sudo rm Hack.tar.xz
 sudo fc-cache -fv
 
 # 3. Generate config file (auto-detects Nerd Font if installed)
-sudo bcon --init-config=system,jp        # Default keybinds
-sudo bcon --init-config=system,vim,jp    # Vim-like keybinds
-sudo bcon --init-config=system,emacs,jp  # Emacs-like keybinds
+sudo ncon --init-config=system,jp        # Default keybinds
+sudo ncon --init-config=system,vim,jp    # Vim-like keybinds
+sudo ncon --init-config=system,emacs,jp  # Emacs-like keybinds
 
 # 4. Enable systemd service (tty2)
 sudo systemctl disable getty@tty2
-sudo systemctl enable bcon@tty2
-sudo systemctl start bcon@tty2
+sudo systemctl enable ncon@tty2
+sudo systemctl start ncon@tty2
 
-# 5. Switch to bcon
+# 5. Switch to ncon
 # Ctrl+Alt+F2
 
 # Toggle IME: Ctrl+Space (fcitx5 default)
@@ -85,22 +88,22 @@ EOF
 Start directly from GDM/SDDM login screen:
 
 ```bash
-# 1. Install bcon
+# 1. Install bcon (upstream)
 curl -fsSL https://sanohiro.github.io/bcon/install.sh | sudo sh
 sudo apt install bcon
 
 # 2. Install session files
-sudo cp /usr/share/bcon/bcon-session /usr/local/bin/
-sudo chmod +x /usr/local/bin/bcon-session
-sudo cp /usr/share/bcon/bcon.desktop /usr/share/xsessions/
+sudo cp /usr/share/ncon/ncon-session /usr/local/bin/
+sudo chmod +x /usr/local/bin/ncon-session
+sudo cp /usr/share/ncon/ncon.desktop /usr/share/xsessions/
 
 # 3. Generate user config
-bcon --init-config=vim,jp    # saves to ~/.config/bcon/config.toml
+ncon --init-config=vim,jp    # saves to ~/.config/ncon/config.toml
 
-# 4. Select "bcon" session from login screen
+# 4. Select "ncon" session from login screen
 ```
 
-Log in directly to bcon without starting a desktop environment. Saves memory and boot time.
+Log in directly to ncon without starting a desktop environment. Saves memory and boot time.
 
 ## Build from Source
 
@@ -119,7 +122,7 @@ sudo apt install \
 cargo build --release
 
 # Generate config
-./target/release/bcon --init-config=vim,jp
+./target/release/ncon --init-config=vim,jp
 ```
 
 ## Manual Start
@@ -130,8 +133,8 @@ Run directly from TTY (virtual console):
 # Switch to TTY
 Ctrl+Alt+F2
 
-# Run bcon
-sudo ./target/release/bcon
+# Run ncon
+sudo ./target/release/ncon
 
 # Return to graphical session
 Ctrl+Alt+F1  # or F7
@@ -139,7 +142,7 @@ Ctrl+Alt+F1  # or F7
 
 ## Rootless Mode
 
-bcon includes libseat support by default, enabling:
+ncon includes libseat support by default, enabling:
 - Running without root privileges
 - Proper session tracking (`loginctl list-sessions`)
 - Integration with screen lock, power management
@@ -163,7 +166,7 @@ sudo pacman -S [package-name]
 
 2. AUR(Arch User Repository) & AUR helper
 
-The bcon package is listed in AUR(community-maintained by @kay-ws).
+The ncon package is listed in AUR(community-maintained by @kay-ws).
 You will need to use AUR helper(such as yay, paru) to retrieve the package.
 ```
 yay -S [AUR-package-name]       # don't use sudo 
@@ -177,7 +180,7 @@ git clone https://aur.archlinux.org/yay.git
 cd yay && makepkg -si
 ```
 
-3. Install bcon
+3. Install bcon (upstream)
 
 Replace
 ```
@@ -186,10 +189,10 @@ sudo apt install bcon
 ```
 with
 ```
-yay -S bcon
+yay -S ncon
 ```
 
 4. User Login Session
 
-Session files (`bcon-session`, `bcon.desktop`) are installed in their final locations by the AUR package, so no manual deployment is needed.
+Session files (`ncon-session`, `ncon.desktop`) are installed in their final locations by the AUR package, so no manual deployment is needed.
 

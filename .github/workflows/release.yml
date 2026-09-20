@@ -43,19 +43,19 @@ jobs:
       - name: Create archive
         run: |
           mkdir -p dist
-          cp target/release/bcon dist/
-          cp bcon@.service dist/
-          cp bcon.desktop dist/
-          cp bcon-session dist/
+          cp target/release/ncon dist/
+          cp ncon@.service dist/
+          cp ncon.desktop dist/
+          cp ncon-session dist/
           cp README.md dist/
           cd dist
-          tar -czvf ../bcon-linux-x86_64.tar.gz *
+          tar -czvf ../ncon-linux-x86_64.tar.gz *
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bcon-linux-x86_64
-          path: bcon-linux-x86_64.tar.gz
+          name: ncon-linux-x86_64
+          path: ncon-linux-x86_64.tar.gz
 
   build-aarch64:
     runs-on: ubuntu-24.04-arm
@@ -84,19 +84,19 @@ jobs:
       - name: Create archive
         run: |
           mkdir -p dist
-          cp target/release/bcon dist/
-          cp bcon@.service dist/
-          cp bcon.desktop dist/
-          cp bcon-session dist/
+          cp target/release/ncon dist/
+          cp ncon@.service dist/
+          cp ncon.desktop dist/
+          cp ncon-session dist/
           cp README.md dist/
           cd dist
-          tar -czvf ../bcon-linux-aarch64.tar.gz *
+          tar -czvf ../ncon-linux-aarch64.tar.gz *
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bcon-linux-aarch64
-          path: bcon-linux-aarch64.tar.gz
+          name: ncon-linux-aarch64
+          path: ncon-linux-aarch64.tar.gz
 
   release:
     needs: [build-x86_64, build-aarch64]
@@ -127,62 +127,62 @@ jobs:
           fi
 
           # amd64 .deb
-          mkdir -p /tmp/bcon-x86_64
-          tar -xzf release/bcon-linux-x86_64.tar.gz -C /tmp/bcon-x86_64
-          mkdir -p deb-amd64/DEBIAN deb-amd64/usr/local/bin deb-amd64/lib/systemd/system deb-amd64/usr/share/doc/bcon deb-amd64/usr/share/xsessions deb-amd64/usr/share/bcon
-          cp /tmp/bcon-x86_64/bcon deb-amd64/usr/local/bin/
-          cp /tmp/bcon-x86_64/bcon-session deb-amd64/usr/local/bin/
-          cp /tmp/bcon-x86_64/bcon@.service deb-amd64/lib/systemd/system/
-          cp /tmp/bcon-x86_64/bcon.desktop deb-amd64/usr/share/xsessions/
-          cp /tmp/bcon-x86_64/README.md deb-amd64/usr/share/doc/bcon/
-          chmod 755 deb-amd64/usr/local/bin/bcon
-          chmod 755 deb-amd64/usr/local/bin/bcon-session
+          mkdir -p /tmp/ncon-x86_64
+          tar -xzf release/ncon-linux-x86_64.tar.gz -C /tmp/ncon-x86_64
+          mkdir -p deb-amd64/DEBIAN deb-amd64/usr/local/bin deb-amd64/lib/systemd/system deb-amd64/usr/share/doc/ncon deb-amd64/usr/share/xsessions deb-amd64/usr/share/ncon
+          cp /tmp/ncon-x86_64/ncon deb-amd64/usr/local/bin/
+          cp /tmp/ncon-x86_64/ncon-session deb-amd64/usr/local/bin/
+          cp /tmp/ncon-x86_64/ncon@.service deb-amd64/lib/systemd/system/
+          cp /tmp/ncon-x86_64/ncon.desktop deb-amd64/usr/share/xsessions/
+          cp /tmp/ncon-x86_64/README.md deb-amd64/usr/share/doc/ncon/
+          chmod 755 deb-amd64/usr/local/bin/ncon
+          chmod 755 deb-amd64/usr/local/bin/ncon-session
           cat > deb-amd64/DEBIAN/control << 'CTRL'
-          Package: bcon
+          Package: ncon
           Version: VERSION_PLACEHOLDER
           Section: utils
           Priority: optional
           Architecture: amd64
           Depends: libdrm2, libgbm1, libegl1, libgles2, libxkbcommon0, libinput10, libudev1, libdbus-1-3, libseat1, libfontconfig1, fonts-dejavu-core
-          Maintainer: sanohiro <sanohiro@users.noreply.github.com>
-          Homepage: https://github.com/sanohiro/bcon
+          Maintainer: Yuan Xin <qinthirteen@outlook.com>
+          Homepage: https://github.com/nefinita/ncon
           Description: GPU-accelerated terminal emulator for Linux console
-           bcon brings modern terminal features directly to the Linux console.
+           ncon brings modern terminal features directly to the Linux console.
            GPU acceleration, True Color, Sixel/Kitty graphics, Japanese input
            without X11/Wayland.
           CTRL
           sed -i 's/^          //' deb-amd64/DEBIAN/control
           sed -i "s/VERSION_PLACEHOLDER/${VERSION}/" deb-amd64/DEBIAN/control
-          dpkg-deb --build deb-amd64 release/bcon_amd64.deb
+          dpkg-deb --build deb-amd64 release/ncon_amd64.deb
 
           # arm64 .deb
-          mkdir -p /tmp/bcon-aarch64
-          tar -xzf release/bcon-linux-aarch64.tar.gz -C /tmp/bcon-aarch64
-          mkdir -p deb-arm64/DEBIAN deb-arm64/usr/local/bin deb-arm64/lib/systemd/system deb-arm64/usr/share/doc/bcon deb-arm64/usr/share/xsessions deb-arm64/usr/share/bcon
-          cp /tmp/bcon-aarch64/bcon deb-arm64/usr/local/bin/
-          cp /tmp/bcon-aarch64/bcon-session deb-arm64/usr/local/bin/
-          cp /tmp/bcon-aarch64/bcon@.service deb-arm64/lib/systemd/system/
-          cp /tmp/bcon-aarch64/bcon.desktop deb-arm64/usr/share/xsessions/
-          cp /tmp/bcon-aarch64/README.md deb-arm64/usr/share/doc/bcon/
-          chmod 755 deb-arm64/usr/local/bin/bcon
-          chmod 755 deb-arm64/usr/local/bin/bcon-session
+          mkdir -p /tmp/ncon-aarch64
+          tar -xzf release/ncon-linux-aarch64.tar.gz -C /tmp/ncon-aarch64
+          mkdir -p deb-arm64/DEBIAN deb-arm64/usr/local/bin deb-arm64/lib/systemd/system deb-arm64/usr/share/doc/ncon deb-arm64/usr/share/xsessions deb-arm64/usr/share/ncon
+          cp /tmp/ncon-aarch64/ncon deb-arm64/usr/local/bin/
+          cp /tmp/ncon-aarch64/ncon-session deb-arm64/usr/local/bin/
+          cp /tmp/ncon-aarch64/ncon@.service deb-arm64/lib/systemd/system/
+          cp /tmp/ncon-aarch64/ncon.desktop deb-arm64/usr/share/xsessions/
+          cp /tmp/ncon-aarch64/README.md deb-arm64/usr/share/doc/ncon/
+          chmod 755 deb-arm64/usr/local/bin/ncon
+          chmod 755 deb-arm64/usr/local/bin/ncon-session
           cat > deb-arm64/DEBIAN/control << 'CTRL'
-          Package: bcon
+          Package: ncon
           Version: VERSION_PLACEHOLDER
           Section: utils
           Priority: optional
           Architecture: arm64
           Depends: libdrm2, libgbm1, libegl1, libgles2, libxkbcommon0, libinput10, libudev1, libdbus-1-3, libseat1, libfontconfig1, fonts-dejavu-core
-          Maintainer: sanohiro <sanohiro@users.noreply.github.com>
-          Homepage: https://github.com/sanohiro/bcon
+          Maintainer: Yuan Xin <qinthirteen@outlook.com>
+          Homepage: https://github.com/nefinita/ncon
           Description: GPU-accelerated terminal emulator for Linux console
-           bcon brings modern terminal features directly to the Linux console.
+           ncon brings modern terminal features directly to the Linux console.
            GPU acceleration, True Color, Sixel/Kitty graphics, Japanese input
            without X11/Wayland.
           CTRL
           sed -i 's/^          //' deb-arm64/DEBIAN/control
           sed -i "s/VERSION_PLACEHOLDER/${VERSION}/" deb-arm64/DEBIAN/control
-          dpkg-deb --build deb-arm64 release/bcon_arm64.deb
+          dpkg-deb --build deb-arm64 release/ncon_arm64.deb
 
           ls -la release/
 
@@ -222,13 +222,13 @@ jobs:
           echo "${APT_GPG_PRIVATE_KEY}" | gpg --batch --import
 
           # Create apt repo structure
-          mkdir -p apt-repo/pool/main/b/bcon
+          mkdir -p apt-repo/pool/main/b/ncon
           mkdir -p apt-repo/dists/stable/main/binary-amd64
           mkdir -p apt-repo/dists/stable/main/binary-arm64
 
           # Copy .deb files
-          cp release/bcon_amd64.deb apt-repo/pool/main/b/bcon/
-          cp release/bcon_arm64.deb apt-repo/pool/main/b/bcon/
+          cp release/ncon_amd64.deb apt-repo/pool/main/b/ncon/
+          cp release/ncon_arm64.deb apt-repo/pool/main/b/ncon/
 
           # Generate Packages files
           cd apt-repo
@@ -239,13 +239,13 @@ jobs:
 
           # Generate Release file
           cat > dists/stable/Release << 'EOF'
-          Origin: bcon
-          Label: bcon
+          Origin: ncon
+          Label: ncon
           Suite: stable
           Codename: stable
           Architectures: amd64 arm64
           Components: main
-          Description: bcon apt repository
+          Description: ncon apt repository
           EOF
           sed -i 's/^          //' dists/stable/Release
           echo "Date: $(date -Ru)" >> dists/stable/Release
@@ -271,7 +271,7 @@ jobs:
           gpg --batch --yes --armor --clearsign -o dists/stable/InRelease dists/stable/Release
 
           # Export public key
-          gpg --armor --export > bcon.gpg
+          gpg --armor --export > ncon.gpg
 
           # Copy install script
           cp ../.github/install.sh .

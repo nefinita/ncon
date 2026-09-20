@@ -750,7 +750,7 @@ impl EvdevKeyboard {
                         // state. If the removed device was a keyboard with
                         // keys held down, its Released events never arrive,
                         // which would otherwise stick keys in self.held_keys
-                        // and generate phantom key repeats. Suspending bcon
+                        // and generate phantom key repeats. Suspending ncon
                         // does the same thing, so users are already used to
                         // this behavior on transient state loss.
                         self.held_keys.clear();

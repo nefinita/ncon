@@ -1,6 +1,6 @@
 #!/bin/bash
 # Kitty Graphics Protocol - Comprehensive Test Suite
-# Run on bcon (or any Kitty Graphics-capable terminal)
+# Run on ncon (or any Kitty Graphics-capable terminal)
 #
 # Usage: bash tests/kitty-graphics-test.sh
 #

@@ -4,12 +4,12 @@
 
 ## 設定ファイルの場所
 
-bcon は設定を複数のレイヤーでマージして読み込みます (XDG 流):
+ncon は設定を複数のレイヤーでマージして読み込みます (XDG 流):
 
 1. **組み込みデフォルト**: バイナリに埋め込まれた既定値 (常に存在)。
-2. `/etc/bcon/config.toml`: サイト共通設定。通常はパッケージマネージャ
+2. `/etc/ncon/config.toml`: サイト共通設定。通常はパッケージマネージャ
    がインストールします。組み込みデフォルトに上書き適用されます。
-3. `~/.config/bcon/config.toml`: ユーザー個別の上書き。サイト共通設定に
+3. `~/.config/ncon/config.toml`: ユーザー個別の上書き。サイト共通設定に
    上書き適用されます。多くのユーザーが編集するのはこのレイヤーです。
 
 テーブルは再帰的にマージされ、スカラ・配列・`Option` フィールドは上位
@@ -27,24 +27,24 @@ bcon は設定を複数のレイヤーでマージして読み込みます (XDG 
 
 | 形式 | 書き込み先 |
 |---|---|
-| `bcon --init-config=system` | `/etc/bcon/config.toml` |
-| `bcon --init-config=user` | `~/.config/bcon/config.toml` |
-| `bcon --init-config=/tmp/x.toml` | `/tmp/x.toml` (読み込みは `BCON_CONFIG` 参照、後述) |
-| `bcon --init-config=~/foo.toml` | `$HOME/foo.toml` (tilde 展開、読み込みは `BCON_CONFIG` 参照、後述) |
+| `ncon --init-config=system` | `/etc/ncon/config.toml` |
+| `ncon --init-config=user` | `~/.config/ncon/config.toml` |
+| `ncon --init-config=/tmp/x.toml` | `/tmp/x.toml` (読み込みは `NCON_CONFIG` 参照、後述) |
+| `ncon --init-config=~/foo.toml` | `$HOME/foo.toml` (tilde 展開、読み込みは `NCON_CONFIG` 参照、後述) |
 
-`system` トークン使用時は `/etc/bcon/` への書き込み権限が必要なので
+`system` トークン使用時は `/etc/ncon/` への書き込み権限が必要なので
 `sudo` で実行してください。
 
 ### コマンド実行例
 
 ```bash
-sudo bcon --init-config=system,default
-bcon --init-config=user,vim,jp
+sudo ncon --init-config=system,default
+ncon --init-config=user,vim,jp
 ```
 
-## 単一ファイルバイパス: `BCON_CONFIG`
+## 単一ファイルバイパス: `NCON_CONFIG`
 
-環境変数 `BCON_CONFIG` にパスを設定し、そのファイルが存在する場合、
+環境変数 `NCON_CONFIG` にパスを設定し、そのファイルが存在する場合、
 **そのファイルのみが読み込まれます** ─ `/etc/` と `~/.config/` の
 レイヤーはスキップされ、マージは行われません。
 
@@ -53,16 +53,16 @@ bcon --init-config=user,vim,jp
 1. **任意パスで生成したアドホック設定の読み込み**。
    `--init-config=/tmp/x.toml` や `--init-config=~/foo.toml` で生成
    したファイルは XDG 標準パス外なので、通常起動時には読み込まれません。
-   `BCON_CONFIG` がそれら任意パス書き込みと実行時読み込みを橋渡しします。
-2. **デバッグ**。`BCON_CONFIG=/dev/null bcon` は何もファイルを読まず
-   組み込みデフォルトのみで起動するので、`/etc/bcon/` や `~/.config/bcon/`
+   `NCON_CONFIG` がそれら任意パス書き込みと実行時読み込みを橋渡しします。
+2. **デバッグ**。`NCON_CONFIG=/dev/null ncon` は何もファイルを読まず
+   組み込みデフォルトのみで起動するので、`/etc/ncon/` や `~/.config/ncon/`
    を触らずに baseline 比較ができます。
 
 例:
 
 ```bash
-bcon --init-config=~/foo.toml,vim       # ファイル生成
-BCON_CONFIG=~/foo.toml bcon              # そのファイルだけを読み込み起動
+ncon --init-config=~/foo.toml,vim       # ファイル生成
+NCON_CONFIG=~/foo.toml ncon              # そのファイルだけを読み込み起動
 ```
 
 ## 利用可能なプリセット
@@ -128,10 +128,10 @@ screenshot_dir = "~/Pictures"
 device = "/dev/dri/card1"    # 特定の GPU を使用
 ```
 
-bcon がどのデバイスを使用しているか確認するには、起動ログを参照してください:
+ncon がどのデバイスを使用しているか確認するには、起動ログを参照してください:
 
 ```bash
-journalctl -u bcon@tty2 -e | grep "DRM"
+journalctl -u ncon@tty2 -e | grep "DRM"
 ```
 
 ```
@@ -144,7 +144,7 @@ DRM device: /dev/dri/card1 (auto-detected)
 
 Optimus 環境では、NVIDIA GPU が存在してもディスプレイは通常 Intel iGPU 経由で出力されます。`device = "auto"` はこれを自動的に処理します — 接続中のディスプレイがない GPU はスキップされます。
 
-`No connected connector found` エラーで bcon が起動しない場合、どの GPU にディスプレイが接続されているか確認してください:
+`No connected connector found` エラーで ncon が起動しない場合、どの GPU にディスプレイが接続されているか確認してください:
 
 ```bash
 # 利用可能な DRM デバイスを確認
@@ -191,7 +191,7 @@ symbols = "Hack Nerd Font Mono"    # フォント名で指定 (推奨)
 # symbols = "/usr/local/share/fonts/HackNerdFontMono-Regular.ttf"  # パスでも可
 ```
 
-`symbols` フォントは Powerline グリフ (U+E000-U+F8FF) や Nerd Font アイコンのフォールバックとして使用されます。指定しない場合、bcon は fontconfig 経由でインストール済みの Nerd Font を自動検出します。
+`symbols` フォントは Powerline グリフ (U+E000-U+F8FF) や Nerd Font アイコンのフォールバックとして使用されます。指定しない場合、ncon は fontconfig 経由でインストール済みの Nerd Font を自動検出します。
 
 注: Powerline 矢印グリフ (E0B0-E0B7) はフォントに関係なくプログラムでピクセルパーフェクトに描画されます。
 

@@ -2,12 +2,15 @@
 
 **[English](installation.md)** | Japanese
 
+> **注記:** このガイドは現時点では上流の **bcon** を Debian リポジトリから導入する手順です。
+> ncon はまだ Debian パッケージとして配布していないため、`cargo build --release` でビルドしてください。
+
 ## 基本セットアップ (Debian/Ubuntu)
 
 日本語環境が必要な場合は [日本語環境セットアップ](#日本語環境セットアップ) を参照してください。
 
 ```bash
-# 1. bcon をインストール
+# 1. bcon（上流）をインストール
 curl -fsSL https://sanohiro.github.io/bcon/install.sh | sudo sh
 sudo apt install bcon
 
@@ -20,29 +23,29 @@ sudo tar xf Hack.tar.xz && sudo rm Hack.tar.xz
 sudo fc-cache -fv
 
 # 3. 設定ファイルを生成 (Nerd Font があれば自動検出)
-sudo bcon --init-config=system           # デフォルトキーバインド
-sudo bcon --init-config=system,vim       # Vim 風キーバインド
-sudo bcon --init-config=system,emacs     # Emacs 風キーバインド
+sudo ncon --init-config=system           # デフォルトキーバインド
+sudo ncon --init-config=system,vim       # Vim 風キーバインド
+sudo ncon --init-config=system,emacs     # Emacs 風キーバインド
 
 # 4. systemd サービスを有効化 (tty2)
 sudo systemctl disable getty@tty2
-sudo systemctl enable bcon@tty2
-sudo systemctl start bcon@tty2
+sudo systemctl enable ncon@tty2
+sudo systemctl start ncon@tty2
 
-# 5. bcon に切り替え
+# 5. ncon に切り替え
 # Ctrl+Alt+F2
 ```
 
 ## 日本語環境セットアップ
 
 ```bash
-# 1. bcon と日本語関連パッケージをインストール
+# 1. bcon（上流）と日本語関連パッケージをインストール
 curl -fsSL https://sanohiro.github.io/bcon/install.sh | sudo sh
 sudo apt install bcon fonts-noto-cjk fonts-noto-color-emoji
 
 # fcitx5 最小インストール (推奨)
 # 通常の fcitx5 は Qt/GTK の GUI モジュールを大量にインストールする。
-# bcon は X11/Wayland を使わないため GUI は不要。--no-install-recommends で最小構成に。
+# ncon は X11/Wayland を使わないため GUI は不要。--no-install-recommends で最小構成に。
 sudo apt install --no-install-recommends fcitx5 fcitx5-mozc
 
 # 2. (任意) Nerd Font をインストール (yazi, lsd 等のアイコン表示用)
@@ -54,16 +57,16 @@ sudo tar xf Hack.tar.xz && sudo rm Hack.tar.xz
 sudo fc-cache -fv
 
 # 3. 設定ファイルを生成 (Nerd Font があれば自動検出)
-sudo bcon --init-config=system,jp        # デフォルトキーバインド
-sudo bcon --init-config=system,vim,jp    # Vim 風キーバインド
-sudo bcon --init-config=system,emacs,jp  # Emacs 風キーバインド
+sudo ncon --init-config=system,jp        # デフォルトキーバインド
+sudo ncon --init-config=system,vim,jp    # Vim 風キーバインド
+sudo ncon --init-config=system,emacs,jp  # Emacs 風キーバインド
 
 # 4. systemd サービスを有効化 (tty2)
 sudo systemctl disable getty@tty2
-sudo systemctl enable bcon@tty2
-sudo systemctl start bcon@tty2
+sudo systemctl enable ncon@tty2
+sudo systemctl start ncon@tty2
 
-# 5. bcon に切り替え
+# 5. ncon に切り替え
 # Ctrl+Alt+F2
 
 # IME 切り替え: Ctrl+Space (fcitx5 デフォルト)
@@ -84,22 +87,22 @@ EOF
 GDM/SDDM などのログイン画面から直接起動:
 
 ```bash
-# 1. bcon をインストール
+# 1. bcon（上流）をインストール
 curl -fsSL https://sanohiro.github.io/bcon/install.sh | sudo sh
 sudo apt install bcon
 
 # 2. セッションファイルをインストール
-sudo cp /usr/share/bcon/bcon-session /usr/local/bin/
-sudo chmod +x /usr/local/bin/bcon-session
-sudo cp /usr/share/bcon/bcon.desktop /usr/share/xsessions/
+sudo cp /usr/share/ncon/ncon-session /usr/local/bin/
+sudo chmod +x /usr/local/bin/ncon-session
+sudo cp /usr/share/ncon/ncon.desktop /usr/share/xsessions/
 
 # 3. ユーザー設定ファイルを生成
-bcon --init-config=vim,jp    # ~/.config/bcon/config.toml に保存
+ncon --init-config=vim,jp    # ~/.config/ncon/config.toml に保存
 
-# 4. ログイン画面で「bcon」セッションを選択
+# 4. ログイン画面で「ncon」セッションを選択
 ```
 
-デスクトップ環境なしで直接 bcon にログイン。メモリ節約・起動時間短縮に効果的。
+デスクトップ環境なしで直接 ncon にログイン。メモリ節約・起動時間短縮に効果的。
 
 ## ソースからビルド
 
@@ -118,7 +121,7 @@ sudo apt install \
 cargo build --release
 
 # 設定ファイル生成
-./target/release/bcon --init-config=vim,jp
+./target/release/ncon --init-config=vim,jp
 ```
 
 ## 手動起動
@@ -129,8 +132,8 @@ TTY (仮想コンソール) から直接実行:
 # TTY に切り替え
 Ctrl+Alt+F2
 
-# bcon を実行
-sudo ./target/release/bcon
+# ncon を実行
+sudo ./target/release/ncon
 
 # グラフィカルセッションに戻る
 Ctrl+Alt+F1  # または F7
@@ -138,7 +141,7 @@ Ctrl+Alt+F1  # または F7
 
 ## rootless モード
 
-bcon はデフォルトで libseat 対応。以下が可能:
+ncon はデフォルトで libseat 対応。以下が可能:
 - root 権限なしで実行
 - セッション追跡 (`loginctl list-sessions`)
 - スクリーンロック、電源管理との連携
@@ -162,7 +165,7 @@ sudo pacman -S [package-name]
 
 2. AUR (Arch User Repository) と AUR ヘルパー
 
-bcon パッケージは AUR に登録されています (community-maintained by @kay-ws)。
+ncon パッケージは AUR に登録されています (community-maintained by @kay-ws)。
 パッケージ取得には AUR ヘルパー (yay, paru 等) が必要です。
 ```
 yay -S [AUR-package-name]       # sudo は付けない
@@ -176,7 +179,7 @@ git clone https://aur.archlinux.org/yay.git
 cd yay && makepkg -si
 ```
 
-3. bcon のインストール
+3. ncon のインストール
 
 以下を
 ```
@@ -185,10 +188,10 @@ sudo apt install bcon
 ```
 次で置き換えます。
 ```
-yay -S bcon
+yay -S ncon
 ```
 
 4. ユーザーログインセッション
 
-セッションファイル (`bcon-session`, `bcon.desktop`) は AUR パッケージが最終配置先に直接インストールするため、手動コピーは不要です。
+セッションファイル (`ncon-session`, `ncon.desktop`) は AUR パッケージが最終配置先に直接インストールするため、手動コピーは不要です。
 

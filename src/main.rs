@@ -1,4 +1,4 @@
-//! bcon - GPU-accelerated terminal for Linux console
+//! ncon - GPU-accelerated terminal for Linux console
 //!
 //! # Architecture
 //!
@@ -60,7 +60,7 @@ fn parse_backend_mode(args: &[String]) -> Option<BackendMode> {
         }
     }
     // Environment fallback
-    if let Ok(env) = std::env::var("BCON_BACKEND") {
+    if let Ok(env) = std::env::var("NCON_BACKEND") {
         return backend_mode_from_str(&env);
     }
     None
@@ -821,13 +821,13 @@ fn find_drm_device() -> Result<String> {
     Ok(available[0].clone())
 }
 
-/// Load font for testing: BCON_FONT env var -> ligature font -> system font
+/// Load font for testing: NCON_FONT env var -> ligature font -> system font
 fn load_test_font() -> Result<Vec<u8>> {
     // Use environment variable if specified
-    if let Ok(path) = std::env::var("BCON_FONT") {
+    if let Ok(path) = std::env::var("NCON_FONT") {
         let data = std::fs::read(&path)
-            .with_context(|| format!("Cannot read font specified by BCON_FONT: {}", path))?;
-        eprintln!("Font: {} (BCON_FONT)", path);
+            .with_context(|| format!("Cannot read font specified by NCON_FONT: {}", path))?;
+        eprintln!("Font: {} (NCON_FONT)", path);
         return Ok(data);
     }
 
@@ -856,10 +856,10 @@ fn load_test_font() -> Result<Vec<u8>> {
 /// Print help message
 fn print_help() {
     println!(
-        r#"bcon {} - GPU-accelerated terminal emulator for Linux console
+        r#"ncon {} - GPU-accelerated terminal emulator for Linux console
 
 USAGE:
-    bcon [OPTIONS]
+    ncon [OPTIONS]
 
 OPTIONS:
     -h, --help              Print this help message
@@ -876,8 +876,8 @@ CONFIG INITIALIZATION (--init-config):
     destination. Remaining tokens are preset names.
 
     Targets:
-      user         ~/.config/bcon/config.toml (XDG, default when omitted)
-      system       /etc/bcon/config.toml (root required to write)
+      user         ~/.config/ncon/config.toml (XDG, default when omitted)
+      system       /etc/ncon/config.toml (root required to write)
       <abs path>   absolute path or '~/'-prefixed path
 
     Presets (combine with comma):
@@ -887,29 +887,29 @@ CONFIG INITIALIZATION (--init-config):
       japanese     CJK fonts + IME auto-disable (alias: jp)
 
 ENV:
-    BCON_CONFIG    Absolute path to a single config file. When set and the
-                   file exists, bcon loads only that file (the layered
+    NCON_CONFIG    Absolute path to a single config file. When set and the
+                   file exists, ncon loads only that file (the layered
                    /etc and ~/.config merge is bypassed). For debug/test.
 
 EXAMPLES:
-    bcon                                     Run bcon (requires TTY, not X/Wayland)
-    sudo bcon                                Run with root (required for DRM)
-    sudo bcon --init-config=system           Generate /etc/bcon/config.toml
-    sudo bcon --init-config=system,vim,jp    System config + vim + japanese
-    bcon --init-config=user                  Generate ~/.config/bcon/config.toml
-    bcon --init-config=user,vim,jp           User config + vim + japanese
-    bcon --init-config=/tmp/x.toml,vim       Arbitrary path (load via BCON_CONFIG)
-    bcon --init-config=~/foo.toml,vim        Tilde-expanded path (load via BCON_CONFIG)
-    bcon --init-config=user,vim --force      Overwrite existing config
+    ncon                                     Run ncon (requires TTY, not X/Wayland)
+    sudo ncon                                Run with root (required for DRM)
+    sudo ncon --init-config=system           Generate /etc/ncon/config.toml
+    sudo ncon --init-config=system,vim,jp    System config + vim + japanese
+    ncon --init-config=user                  Generate ~/.config/ncon/config.toml
+    ncon --init-config=user,vim,jp           User config + vim + japanese
+    ncon --init-config=/tmp/x.toml,vim       Arbitrary path (load via NCON_CONFIG)
+    ncon --init-config=~/foo.toml,vim        Tilde-expanded path (load via NCON_CONFIG)
+    ncon --init-config=user,vim --force      Overwrite existing config
 
 CONFIG FILES (layered XDG merge):
-    1. /etc/bcon/config.toml         (site default, package-installed)
-    2. ~/.config/bcon/config.toml    (user override, wins on overlapping keys)
+    1. /etc/ncon/config.toml         (site default, package-installed)
+    2. ~/.config/ncon/config.toml    (user override, wins on overlapping keys)
 
     Tables merge recursively; arrays and scalars replace wholesale.
     Built-in defaults underlie both layers and fill any gaps.
 
-For more information, see: https://github.com/sanohiro/bcon
+For more information, see: https://github.com/nefinita/ncon
 "#,
         env!("CARGO_PKG_VERSION")
     );
@@ -919,7 +919,7 @@ For more information, see: https://github.com/sanohiro/bcon
 fn test_shaper_mode() -> Result<()> {
     eprintln!("=== Text Shaper Test ===\n");
 
-    // Use BCON_FONT env var or prioritize ligature fonts
+    // Use NCON_FONT env var or prioritize ligature fonts
     let font_data: &'static [u8] = Box::leak(
         load_test_font()
             .context("Failed to load font")?
@@ -1154,7 +1154,7 @@ fn save_screenshot(
 
     // Generate filename
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let path = format!("{}/bcon_screenshot_{}.png", screenshot_dir, timestamp);
+    let path = format!("{}/ncon_screenshot_{}.png", screenshot_dir, timestamp);
 
     // Save as PNG
     let file = std::fs::File::create(&path)?;
@@ -1200,17 +1200,17 @@ fn main() -> Result<()> {
 
     // --version
     if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("bcon {}", env!("CARGO_PKG_VERSION"));
+        println!("ncon {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 
-    info!("bcon starting...");
+    info!("ncon starting...");
 
     let test_mode = args.iter().any(|a| a == "--test" || a == "-t");
 
     if test_mode {
         info!("Test mode: skipping DRM initialization");
-        eprintln!("[OK] bcon build verification complete");
+        eprintln!("[OK] ncon build verification complete");
         return Ok(());
     }
 
@@ -1261,8 +1261,8 @@ fn main() -> Result<()> {
         let preset_strs: Vec<&str> = preset_owned.iter().map(|s| s.as_str()).collect();
 
         let target_display = match &target {
-            config::WriteTarget::User => "user (~/.config/bcon/config.toml)".to_string(),
-            config::WriteTarget::System => "system (/etc/bcon/config.toml)".to_string(),
+            config::WriteTarget::User => "user (~/.config/ncon/config.toml)".to_string(),
+            config::WriteTarget::System => "system (/etc/ncon/config.toml)".to_string(),
             config::WriteTarget::Path(p) => format!("path ({})", p.display()),
         };
         let preset_display = if preset_strs.is_empty() {
@@ -1319,10 +1319,10 @@ fn main() -> Result<()> {
                 }
                 println!();
                 println!("Usage forms (first comma-token decides target):");
-                println!("  sudo bcon --init-config=system           -> /etc/bcon/config.toml");
-                println!("  bcon --init-config=user,vim,jp           -> ~/.config/bcon/config.toml + vim + japanese");
-                println!("  bcon --init-config=/tmp/x.toml,vim       -> /tmp/x.toml + vim (load via BCON_CONFIG)");
-                println!("  bcon --init-config=~/foo.toml,vim        -> $HOME/foo.toml + vim (load via BCON_CONFIG)");
+                println!("  sudo ncon --init-config=system           -> /etc/ncon/config.toml");
+                println!("  ncon --init-config=user,vim,jp           -> ~/.config/ncon/config.toml + vim + japanese");
+                println!("  ncon --init-config=/tmp/x.toml,vim       -> /tmp/x.toml + vim (load via NCON_CONFIG)");
+                println!("  ncon --init-config=~/foo.toml,vim        -> $HOME/foo.toml + vim (load via NCON_CONFIG)");
                 println!();
                 println!("Available presets: default, vim, emacs, japanese (alias: jp)");
                 return Ok(());
@@ -1425,7 +1425,7 @@ fn main() -> Result<()> {
                 if !is_root {
                     return Err(anyhow!(
                         "libseat unavailable and running unprivileged; cannot use VT backend. \
-Install seatd/logind or run as root (or set BCON_BACKEND=vt when root). Error: {}",
+Install seatd/logind or run as root (or set NCON_BACKEND=vt when root). Error: {}",
                         e
                     ));
                 }
@@ -1505,7 +1505,7 @@ Make sure seatd/logind is running and you're on an active VT."
     };
 
     // Acquire DRM master only if the active backend is actually in the foreground.
-    // This prevents bcon from stealing the visible console at boot.
+    // This prevents ncon from stealing the visible console at boot.
     let mut initial_drm_master = false;
 
     #[cfg(all(target_os = "linux", feature = "seatd"))]
@@ -1886,7 +1886,7 @@ Make sure seatd/logind is running and you're on an active VT."
     // Pass DBUS_SESSION_BUS_ADDRESS to child process.
     // For non-root: shell is exec'd directly, so extra_env works.
     // For root/systemd: /bin/login calls clearenv(), so this is lost —
-    // but /etc/profile.d/bcon-dbus.sh (written by ensure_ime_environment)
+    // but /etc/profile.d/ncon-dbus.sh (written by ensure_ime_environment)
     // provides the address to login shells instead.
     let dbus_addr = input::ime::dbus_address();
     let extra_env: Vec<(&str, &str)> = if let Some(ref addr) = dbus_addr {
@@ -2474,9 +2474,9 @@ Make sure seatd/logind is running and you're on an active VT."
             // If DRM master was never acquired, check for timeout.
             // This prevents indefinite freeze when running without proper privileges.
             if !drm_master_ever_held && drm_master_wait_start.elapsed() > Duration::from_secs(5) {
-                eprintln!("[bcon] ERROR: Cannot acquire DRM master (Permission denied).");
+                eprintln!("[ncon] ERROR: Cannot acquire DRM master (Permission denied).");
                 eprintln!(
-                    "[bcon] Either run as root (sudo) or use --backend=seatd with logind/seatd."
+                    "[ncon] Either run as root (sudo) or use --backend=seatd with logind/seatd."
                 );
                 return Err(anyhow!(
                     "Cannot acquire DRM master after 5s. \
@@ -2613,7 +2613,7 @@ Make sure seatd/logind is running and you're on an active VT."
                                         } else {
                                             // Resolution changed - need restart
                                             log::warn!(
-                                                "Display resolution changed ({}x{} -> {}x{}). Restart bcon to apply.",
+                                                "Display resolution changed ({}x{} -> {}x{}). Restart ncon to apply.",
                                                 display_config.width, display_config.height,
                                                 new_config.width, new_config.height
                                             );
@@ -6946,6 +6946,6 @@ Make sure seatd/logind is running and you're on an active VT."
     // Delete clipboard file
     let _ = std::fs::remove_file(&cfg.paths.clipboard_file);
 
-    info!("bcon terminated");
+    info!("ncon terminated");
     Ok(())
 }

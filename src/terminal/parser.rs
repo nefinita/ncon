@@ -339,7 +339,7 @@ impl<'a> Perform for Performer<'a> {
             ('c', [b'>']) => {
                 // DA2 - Secondary Device Attributes
                 // >Pp;Pv;Pc c (Pp=terminal type, Pv=firmware version, Pc=ROM number)
-                // 1: VT220, 100: bcon version 0.1.0 (encoded as 100), 0: ROM
+                // 1: VT220, 100: ncon version 0.1.0 (encoded as 100), 0: ROM
                 self.pty_response.extend_from_slice(b"\x1b[>1;100;0c");
             }
             ('c', [b'=']) => {
@@ -352,7 +352,7 @@ impl<'a> Perform for Performer<'a> {
                 // XTVERSION - Terminal version query
                 // DCS > | Pt ST
                 self.pty_response
-                    .extend_from_slice(b"\x1bP>|bcon 0.1.0\x1b\\");
+                    .extend_from_slice(b"\x1bP>|ncon 0.1.0\x1b\\");
             }
             ('b', []) => {
                 // REP - Repeat preceding graphic character Ps times (default 1)
@@ -1730,7 +1730,7 @@ impl<'a> Performer<'a> {
     fn get_termcap_value(&self, cap: &str) -> Option<String> {
         match cap {
             // Terminal name
-            "TN" => Some("bcon".to_string()),
+            "TN" => Some("ncon".to_string()),
             // True color support (RGB)
             "RGB" => Some("1".to_string()),
             // Tc (tmux-style true color flag)

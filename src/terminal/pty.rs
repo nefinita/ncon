@@ -100,7 +100,7 @@ impl Pty {
                 // Set environment
                 std::env::set_var("TERM", term_env);
                 std::env::set_var("COLORTERM", "truecolor");
-                std::env::set_var("TERM_PROGRAM", "bcon");
+                std::env::set_var("TERM_PROGRAM", "ncon");
                 std::env::set_var("HOME", &home);
                 std::env::set_var("USER", &user_name);
                 std::env::set_var("LOGNAME", &user_name);
@@ -130,7 +130,7 @@ impl Pty {
                 match nix::unistd::execvp(&shell_cstr, &[&argv0]) {
                     Ok(infallible) => match infallible {},
                     Err(e) => {
-                        eprintln!("bcon: failed to spawn shell: {}", e);
+                        eprintln!("ncon: failed to spawn shell: {}", e);
                         std::process::exit(1);
                     }
                 }
@@ -188,7 +188,7 @@ impl Pty {
                 // Child process: set environment variables and spawn shell
                 std::env::set_var("TERM", term_env);
                 std::env::set_var("COLORTERM", "truecolor");
-                std::env::set_var("TERM_PROGRAM", "bcon");
+                std::env::set_var("TERM_PROGRAM", "ncon");
 
                 // Set extra environment variables (e.g., DBUS_SESSION_BUS_ADDRESS for IME)
                 for (key, value) in extra_env {
@@ -199,7 +199,7 @@ impl Pty {
                 // Otherwise, spawn user's shell directly
                 if unsafe { libc::getuid() } == 0 {
                     // Running as root (e.g., systemd service) - require login
-                    // Disable login timeout — bcon acts as a getty replacement,
+                    // Disable login timeout — ncon acts as a getty replacement,
                     // so the login prompt should persist indefinitely.
                     std::env::set_var("LOGIN_TIMEOUT", "0");
                     let login = match std::ffi::CString::new("/bin/login") {
@@ -213,7 +213,7 @@ impl Pty {
                     match nix::unistd::execvp(&login, &[&argv0]) {
                         Ok(infallible) => match infallible {},
                         Err(e) => {
-                            eprintln!("bcon: failed to exec /bin/login: {}", e);
+                            eprintln!("ncon: failed to exec /bin/login: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -223,7 +223,7 @@ impl Pty {
                     let shell_cstr = match std::ffi::CString::new(shell.as_str()) {
                         Ok(s) => s,
                         Err(_) => {
-                            eprintln!("bcon: invalid shell path (contains NUL byte)");
+                            eprintln!("ncon: invalid shell path (contains NUL byte)");
                             std::process::exit(1);
                         }
                     };
@@ -236,7 +236,7 @@ impl Pty {
                     let argv0 = match std::ffi::CString::new(shell_name) {
                         Ok(s) => s,
                         Err(_) => {
-                            eprintln!("bcon: invalid shell name (contains NUL byte)");
+                            eprintln!("ncon: invalid shell name (contains NUL byte)");
                             std::process::exit(1);
                         }
                     };
@@ -244,7 +244,7 @@ impl Pty {
                     match nix::unistd::execvp(&shell_cstr, &[&argv0]) {
                         Ok(infallible) => match infallible {},
                         Err(e) => {
-                            eprintln!("bcon: failed to spawn shell: {}", e);
+                            eprintln!("ncon: failed to spawn shell: {}", e);
                             std::process::exit(1);
                         }
                     }

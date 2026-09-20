@@ -1,6 +1,6 @@
 //! evdev keycode constants
 //!
-//! Consolidates all evdev key constants used throughout bcon.
+//! Consolidates all evdev key constants used throughout ncon.
 //! These are Linux input event codes from <linux/input-event-codes.h>.
 
 #![allow(dead_code)]

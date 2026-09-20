@@ -16,8 +16,8 @@ use std::sync::mpsc;
 /// automatically starts `dbus-daemon` and `fcitx5` so that IME works
 /// out of the box.
 ///
-/// Uses a well-known socket path (`/run/user/$UID/bcon-dbus` or `/tmp/bcon-dbus-$UID`)
-/// so that dbus-daemon survives bcon restarts and can be reused.
+/// Uses a well-known socket path (`/run/user/$UID/ncon-dbus` or `/tmp/ncon-dbus-$UID`)
+/// so that dbus-daemon survives ncon restarts and can be reused.
 ///
 /// When running as root (systemd service), this function is a no-op.
 /// D-Bus and fcitx5 are started later by `start_fcitx5_as_user()` after
@@ -38,14 +38,14 @@ pub fn ensure_ime_environment() {
         return;
     }
 
-    // Determine a stable socket path for bcon's D-Bus session
+    // Determine a stable socket path for ncon's D-Bus session
     let uid = unsafe { libc::getuid() };
     let socket_path = {
         let xdg_dir = format!("/run/user/{}", uid);
         if std::path::Path::new(&xdg_dir).is_dir() {
-            format!("{}/bcon-dbus", xdg_dir)
+            format!("{}/ncon-dbus", xdg_dir)
         } else {
-            format!("/tmp/bcon-dbus-{}", uid)
+            format!("/tmp/ncon-dbus-{}", uid)
         }
     };
     let addr = format!("unix:path={}", socket_path);
@@ -132,7 +132,7 @@ pub fn start_fcitx5() {
         return;
     }
     let dbus_addr = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap_or_default();
-    info!("IME: starting fcitx5 on bcon D-Bus...");
+    info!("IME: starting fcitx5 on ncon D-Bus...");
     match std::process::Command::new("fcitx5").arg("-d").spawn() {
         Ok(_) => {
             info!("IME: started fcitx5 daemon (DBUS={}), waiting for initialization...", dbus_addr);
@@ -146,12 +146,12 @@ pub fn start_fcitx5() {
 
 /// Start fcitx5 as the logged-in user (for root/systemd case).
 ///
-/// When bcon runs as root, fcitx5 cannot run as root (crashes with "Home is not set").
+/// When ncon runs as root, fcitx5 cannot run as root (crashes with "Home is not set").
 /// This function detects the user from the PTY child process UID and starts fcitx5
 /// as that user via fork() + setuid, with proper HOME and DBUS_SESSION_BUS_ADDRESS.
 ///
 /// Also starts a user-owned dbus-daemon with EXTERNAL auth and `<allow user="*"/>`
-/// policy so both the user (fcitx5) and root (bcon) can connect.
+/// policy so both the user (fcitx5) and root (ncon) can connect.
 ///
 /// `child_uid`: UID of the PTY child process (from `Terminal::pty.child_uid()`)
 /// Returns true if fcitx5 was actually launched (or attempted).
@@ -200,10 +200,10 @@ pub fn start_fcitx5_as_user(child_uid: Option<u32>) -> bool {
     // User-owned system bus (/run/user/1000/bus) rejects root connections.
     // Solution: user-owned dbus-daemon with EXTERNAL auth and <allow user="*"/>
     // policy so both root and the user can connect.
-    let socket_path = format!("/tmp/bcon-user-dbus-{}", uid);
+    let socket_path = format!("/tmp/ncon-user-dbus-{}", uid);
     let dbus_addr = format!("unix:path={}", socket_path);
-    let config_path = format!("/tmp/bcon-user-dbus-config-{}.xml", uid);
-    let log_path = format!("/tmp/bcon-fcitx5-{}.log", uid);
+    let config_path = format!("/tmp/ncon-user-dbus-config-{}.xml", uid);
+    let log_path = format!("/tmp/ncon-fcitx5-{}.log", uid);
 
     // Remove stale socket from previous runs
     let _ = std::fs::remove_file(&socket_path);
@@ -279,7 +279,7 @@ pub fn start_fcitx5_as_user(child_uid: Option<u32>) -> bool {
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .exec();
-            eprintln!("bcon: exec failed: {}", err);
+            eprintln!("ncon: exec failed: {}", err);
             std::process::exit(1);
         }
         child_pid => {
@@ -288,7 +288,7 @@ pub fn start_fcitx5_as_user(child_uid: Option<u32>) -> bool {
             info!("IME: user dbus+fcitx5 exited (status={})", status);
             std::thread::sleep(std::time::Duration::from_secs(2));
 
-            // Make socket accessible to root (bcon)
+            // Make socket accessible to root (ncon)
             {
                 use std::os::unix::fs::PermissionsExt;
                 if let Err(e) = std::fs::set_permissions(
@@ -306,9 +306,9 @@ pub fn start_fcitx5_as_user(child_uid: Option<u32>) -> bool {
                 }
             }
 
-            // Switch bcon to user's D-Bus
+            // Switch ncon to user's D-Bus
             std::env::set_var("DBUS_SESSION_BUS_ADDRESS", &dbus_addr);
-            info!("IME: switched bcon D-Bus to: {}", dbus_addr);
+            info!("IME: switched ncon D-Bus to: {}", dbus_addr);
         }
     }
     true
@@ -398,7 +398,7 @@ fn ensure_fcitx5_profile(home: &str, uid: u32, gid: u32) {
     }
 }
 
-/// Get the current bcon D-Bus address if one was set up.
+/// Get the current ncon D-Bus address if one was set up.
 ///
 /// Returns the address string for passing to child processes via extra_env.
 pub fn dbus_address() -> Option<String> {
@@ -578,7 +578,7 @@ impl ImeClient {
         let (key_tx, key_rx) = tokio::sync::mpsc::channel::<ImeKeyEvent>(64);
 
         let thread = std::thread::Builder::new()
-            .name("bcon-ime".into())
+            .name("ncon-ime".into())
             .spawn(move || {
                 ime_thread(event_tx, key_rx, ready_tx);
             })
@@ -699,7 +699,7 @@ async fn ime_async_main(
     };
 
     // Create InputContext
-    let args = vec![("program".to_string(), "bcon".to_string())];
+    let args = vec![("program".to_string(), "ncon".to_string())];
 
     let (ic_path, _) = match controller.create_input_context(args).await {
         Ok(result) => result,

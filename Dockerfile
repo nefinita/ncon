@@ -1,4 +1,4 @@
-# bcon開発用Dockerfile
+# ncon開発用Dockerfile
 # DRM/KMS対応のLinux環境でビルド・テスト
 
 FROM rust:1.82-bookworm

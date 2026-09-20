@@ -183,7 +183,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - CI build failure: add libseat-dev to build dependencies
 - .deb package now includes libseat1 as runtime dependency
-- .deb package now includes bcon.desktop and bcon-session
+- .deb package now includes ncon.desktop and ncon-session
 
 ## [0.2.12] - 2026-02-14
 
@@ -197,11 +197,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Single binary works for both root and GDM/SDDM login sessions
 
 ### Added
-- bcon-session wrapper script for login session support
+- ncon-session wrapper script for login session support
 - GDM/SDDM login session documentation
 
 ### Fixed
-- bcon.desktop now correctly configured for xsessions
+- ncon.desktop now correctly configured for xsessions
 
 ## [0.2.10] - 2026-02-14
 

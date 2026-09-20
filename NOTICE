@@ -1,0 +1,17 @@
+ncon — Nefinita series
+======================
+
+This project is a fork of bcon:
+
+    bcon — GPU-accelerated terminal emulator for the Linux console
+    https://github.com/sanohiro/bcon
+    Copyright (c) 2024-2026 sanohiro
+    MIT License
+
+Modifications and new work in this repository:
+
+    Copyright (c) 2026 Yuan Xin (Nefinita)
+    https://github.com/nefinita/ncon
+
+The upstream MIT license text is preserved in LICENSE together with the
+original copyright notice.

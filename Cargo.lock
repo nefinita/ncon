@@ -186,51 +186,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
-name = "bcon"
-version = "1.4.0"
-dependencies = [
- "anyhow",
- "bitflags 2.10.0",
- "chrono",
- "dirs",
- "drm 0.11.1",
- "env_logger",
- "flate2",
- "fontconfig",
- "fontdue",
- "freetype-rs",
- "futures-util",
- "gbm",
- "glow",
- "image",
- "input",
- "khronos-egl",
- "libc",
- "libloading",
- "libseat",
- "log",
- "memmap2 0.9.9",
- "nix 0.27.1",
- "notify",
- "png",
- "rustybuzz",
- "sd-notify",
- "serde",
- "smol_str",
- "tempfile",
- "thiserror",
- "tokio",
- "toml",
- "udev 0.8.0",
- "unicode-normalization",
- "unicode-segmentation",
- "unicode-width",
- "vte",
- "xkbcommon",
- "zbus",
-]
-
-[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1203,6 +1158,51 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "ncon"
+version = "1.4.0"
+dependencies = [
+ "anyhow",
+ "bitflags 2.10.0",
+ "chrono",
+ "dirs",
+ "drm 0.11.1",
+ "env_logger",
+ "flate2",
+ "fontconfig",
+ "fontdue",
+ "freetype-rs",
+ "futures-util",
+ "gbm",
+ "glow",
+ "image",
+ "input",
+ "khronos-egl",
+ "libc",
+ "libloading",
+ "libseat",
+ "log",
+ "memmap2 0.9.9",
+ "nix 0.27.1",
+ "notify",
+ "png",
+ "rustybuzz",
+ "sd-notify",
+ "serde",
+ "smol_str",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "toml",
+ "udev 0.8.0",
+ "unicode-normalization",
+ "unicode-segmentation",
+ "unicode-width",
+ "vte",
+ "xkbcommon",
+ "zbus",
 ]
 
 [[package]]

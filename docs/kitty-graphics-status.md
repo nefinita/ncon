@@ -1,12 +1,12 @@
 # Kitty Graphics Protocol — Implementation Status
 
-Tracking bcon's implementation of the [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) compared to other terminals.
+Tracking ncon's implementation of the [Kitty Graphics Protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) compared to other terminals.
 
 Last updated: 2026-03-31 (v1.3.0)
 
 ## Transfer Modes
 
-| Mode | Key | bcon | kitty | Ghostty | WezTerm |
+| Mode | Key | ncon | kitty | Ghostty | WezTerm |
 |------|-----|------|-------|---------|---------|
 | Direct (base64 inline) | `t=d` | Yes | Yes | Yes | Yes |
 | File path | `t=f` | Yes | Yes | Yes | Yes |
@@ -17,7 +17,7 @@ All 4 modes are enabled by default. Can be disabled via `[security] allow_kitty_
 
 ## Actions
 
-| Action | Key | bcon | kitty | Ghostty | WezTerm |
+| Action | Key | ncon | kitty | Ghostty | WezTerm |
 |--------|-----|------|-------|---------|---------|
 | Transmit only | `a=t` | Yes | Yes | Yes | Yes |
 | Transmit & display | `a=T` | Yes | Yes | Yes | Yes |
@@ -30,7 +30,7 @@ All 4 modes are enabled by default. Can be disabled via `[security] allow_kitty_
 
 ## Delete Targets (`a=d`)
 
-| Target | Key | bcon | kitty | Ghostty | WezTerm |
+| Target | Key | ncon | kitty | Ghostty | WezTerm |
 |--------|-----|------|-------|---------|---------|
 | All visible | `d=a/A` | Yes | Yes | Yes | Yes |
 | By image ID | `d=i/I` | Yes | Yes | Yes | Yes |
@@ -45,7 +45,7 @@ All 4 modes are enabled by default. Can be disabled via `[security] allow_kitty_
 
 ## Image Management
 
-| Feature | bcon | kitty | Ghostty | WezTerm |
+| Feature | ncon | kitty | Ghostty | WezTerm |
 |---------|------|-------|---------|---------|
 | Storage model | Texture cache (HashMap) | Out-of-band (verstable hashmap) | Out-of-band (Pin tracking) | Cell-attached |
 | Scroll tracking | Yes (absolute row) | Yes (row offset) | Yes (Pin) | Yes (implicit via cells) |
@@ -56,7 +56,7 @@ All 4 modes are enabled by default. Can be disabled via `[security] allow_kitty_
 
 ## Image Formats
 
-| Format | Key | bcon | kitty | Ghostty | WezTerm |
+| Format | Key | ncon | kitty | Ghostty | WezTerm |
 |--------|-----|------|-------|---------|---------|
 | RGBA (32bpp) | `f=32` | Yes | Yes | Yes | Yes |
 | RGB (24bpp) | `f=24` | Yes | Yes | Yes | Yes |
@@ -64,7 +64,7 @@ All 4 modes are enabled by default. Can be disabled via `[security] allow_kitty_
 
 ## Other Features
 
-| Feature | bcon | kitty | Ghostty | WezTerm |
+| Feature | ncon | kitty | Ghostty | WezTerm |
 |---------|------|-------|---------|---------|
 | Chunked transfer (`m=1`) | Yes | Yes | Yes | Yes |
 | zlib compression (`o=z`) | Yes | Yes | Yes | Yes |
@@ -80,7 +80,7 @@ All 4 modes are enabled by default. Can be disabled via `[security] allow_kitty_
 
 ## Test Suite
 
-Run the test suite on bcon:
+Run the test suite on ncon:
 
 ```bash
 python3 tests/generate-test-images.py

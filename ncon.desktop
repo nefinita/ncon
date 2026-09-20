@@ -1,9 +1,9 @@
 [Desktop Entry]
-Name=bcon
+Name=ncon
 Comment=GPU-accelerated console terminal
 Comment[ja]=GPU アクセラレーション対応コンソールターミナル
-Exec=/usr/local/bin/bcon-session
-TryExec=/usr/local/bin/bcon
+Exec=/usr/local/bin/ncon-session
+TryExec=/usr/local/bin/ncon
 Type=Application
-DesktopNames=bcon
+DesktopNames=ncon
 X-GDM-SessionRegisters=true

@@ -1,8 +1,11 @@
-# bcon
+# ncon
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![CI](https://github.com/sanohiro/bcon/actions/workflows/ci.yml/badge.svg)](https://github.com/sanohiro/bcon/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/sanohiro/bcon)](https://github.com/sanohiro/bcon/releases/latest)
+[![CI](https://github.com/nefinita/ncon/actions/workflows/ci.yml/badge.svg)](https://github.com/nefinita/ncon/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/nefinita/ncon)](https://github.com/nefinita/ncon/releases/latest)
+
+> **ncon** is part of the [Nefinita](https://github.com/nefinita) series, forked from [bcon](https://github.com/sanohiro/bcon) (MIT, © 2024-2026 sanohiro).
+> Packaging/install instructions below still refer to the upstream project; ncon is not published as a package yet — build from source with `cargo build --release`.
 
 GPU-accelerated terminal emulator for Linux console (TTY) — no X11/Wayland required.
 
@@ -13,25 +16,25 @@ GPU-accelerated terminal emulator for Linux console (TTY) — no X11/Wayland req
 - **Built-in panes & tabs** — no tmux needed, no graphics passthrough issues
 - **Japanese input** — fcitx5 integration via D-Bus, works on bare console
 
-![bcon — Claude Code, yazi with image preview, and vim running in split panes on Linux TTY](demo/screenshot-split-panes.png)
+![ncon — Claude Code, yazi with image preview, and vim running in split panes on Linux TTY](demo/screenshot-split-panes.png)
 
-## Why bcon?
+## Why ncon?
 
 AI coding tools (Claude Code, Codex, Gemini CLI) have transformed development workflows. We spend less time in VSCode and more time in the terminal.
 
 Look around — the only thing running on your X11/Wayland session might be a terminal emulator. So why not skip the desktop entirely?
 
-**bcon** is the answer. It brings the modern terminal experience of Ghostty or Alacritty directly to the Linux console. GPU acceleration, True Color, Sixel/Kitty graphics, Japanese input — no X11 required.
+**ncon** is the answer. It brings the modern terminal experience of Ghostty or Alacritty directly to the Linux console. GPU acceleration, True Color, Sixel/Kitty graphics, Japanese input — no X11 required.
 
-### What bcon does
+### What ncon does
 
-bcon includes **built-in split panes and tabs** — no need for tmux or screen for basic multiplexing. This is important because terminal multiplexers often break Kitty graphics protocol passthrough, defeating bcon's image rendering capabilities.
+ncon includes **built-in split panes and tabs** — no need for tmux or screen for basic multiplexing. This is important because terminal multiplexers often break Kitty graphics protocol passthrough, defeating ncon's image rendering capabilities.
 
 **Enjoy your CLI life.**
 
 | | Real TTY | GPU accel | Kitty graphics | IME | Split panes |
 |---|:---:|:---:|:---:|:---:|:---:|
-| **bcon** | Yes | Yes | Yes | Yes | Built-in |
+| **ncon** | Yes | Yes | Yes | Yes | Built-in |
 | kitty / alacritty / ghostty | No (needs X11/Wayland) | Yes | Varies | Desktop IME | Varies |
 | tmux / screen | Yes | No | Passthrough issues | N/A | Yes |
 
@@ -114,11 +117,11 @@ sudo apt install bcon
 #    See: docs/configuration.md#nerd-fonts-icons
 
 # 3. Generate config & enable service
-sudo bcon --init-config=system,vim    # or: system,emacs / system,jp / system,vim,jp
+sudo ncon --init-config=system,vim    # or: system,emacs / system,jp / system,vim,jp
 sudo systemctl disable getty@tty2
-sudo systemctl enable --now bcon@tty2
+sudo systemctl enable --now ncon@tty2
 
-# 4. Switch to bcon: Ctrl+Alt+F2
+# 4. Switch to ncon: Ctrl+Alt+F2
 ```
 
 ## Documentation
@@ -136,7 +139,7 @@ sudo systemctl enable --now bcon@tty2
 
 ## Limitations
 
-- **Multi-seat (DRM lease)**: Not supported. bcon uses exclusive access to the GPU.
+- **Multi-seat (DRM lease)**: Not supported. ncon uses exclusive access to the GPU.
 - **Multiple monitors**: Currently outputs to one monitor only.
 
 ## License

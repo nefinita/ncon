@@ -1046,7 +1046,7 @@ mod tests {
     }
 
     /// Reproduces the chafa-style chunked Kitty transmission where each chunk
-    /// is a self-contained base64 unit ending in `=` padding. The bug: bcon
+    /// is a self-contained base64 unit ending in `=` padding. The bug: ncon
     /// used to concatenate raw base64 across chunks and skip `=` during decode,
     /// leaking 2 leftover bits from each chunk's final group into the next
     /// chunk and producing `num_chunks * 2 / 8` extra bytes in the output.
@@ -1091,7 +1091,7 @@ mod tests {
     }
 
     /// Reproduces the mpv v0.40.0 bug from issue #7: RGB data is slightly
-    /// short of expected w*h*3 (720 bytes / 240 pixels missing). bcon must
+    /// short of expected w*h*3 (720 bytes / 240 pixels missing). ncon must
     /// pad with zeros instead of rejecting the frame.
     #[test]
     fn rgb_size_mismatch_tolerant() {
