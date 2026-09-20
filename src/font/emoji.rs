@@ -116,6 +116,19 @@ pub fn is_regional_indicator(c: char) -> bool {
     (0x1F1E6..=0x1F1FF).contains(&cp)
 }
 
+/// Location of a CBDT bitmap inside the (memory-mapped) font data.
+///
+/// Decoding is deferred until a codepoint is actually rendered: Noto Color
+/// Emoji alone has ~4000 bitmaps (~280 MB as RGBA), and a terminal session
+/// typically shows a handful of them.
+#[derive(Debug, Clone, Copy)]
+struct GlyphSource {
+    /// Absolute offset of the image data in the font file
+    offset: usize,
+    /// CBDT image format (17/18/19)
+    image_format: u16,
+}
+
 /// Color emoji bitmap
 #[derive(Debug)]
 pub struct EmojiGlyph {
@@ -133,8 +146,8 @@ struct ColrLayer {
 
 /// Loader for color emoji from CBDT/CBLC and COLR/CPAL tables
 pub struct EmojiLoader {
-    /// Glyph ID -> bitmap map (CBDT)
-    glyphs: HashMap<u16, EmojiGlyph>,
+    /// Glyph ID -> bitmap location (CBDT); decoded on demand
+    glyph_sources: HashMap<u16, GlyphSource>,
     /// cmap table (codepoint -> glyph ID)
     cmap: HashMap<u32, u16>,
     /// Font size (for strike index selection)
@@ -223,7 +236,7 @@ impl EmojiLoader {
         face: Option<rustybuzz::Face<'static>>,
     ) -> Option<Self> {
         let mut loader = Self {
-            glyphs: HashMap::new(),
+            glyph_sources: HashMap::new(),
             cmap: HashMap::new(),
             target_size,
             face,
@@ -296,7 +309,7 @@ impl EmojiLoader {
         // Parse CBLC/CBDT (bitmap format)
         if cblc_offset > 0 && cbdt_offset > 0 {
             loader.parse_cblc_cbdt(data, cblc_offset, cbdt_offset);
-            info!("EmojiLoader: CBDT parsed, {} glyphs", loader.glyphs.len());
+            info!("EmojiLoader: CBDT parsed, {} glyphs", loader.glyph_sources.len());
         }
 
         // Parse COLR/CPAL (vector format)
@@ -311,22 +324,22 @@ impl EmojiLoader {
         }
 
         // sbix/SVG not supported
-        if sbix_offset > 0 && loader.glyphs.is_empty() && loader.colr_layers.is_empty() {
+        if sbix_offset > 0 && loader.glyph_sources.is_empty() && loader.colr_layers.is_empty() {
             warn!("EmojiLoader: this font uses sbix (Apple) format (not supported)");
         }
-        if svg_offset > 0 && loader.glyphs.is_empty() && loader.colr_layers.is_empty() {
+        if svg_offset > 0 && loader.glyph_sources.is_empty() && loader.colr_layers.is_empty() {
             warn!("EmojiLoader: this font uses SVG format (not supported)");
         }
 
         // Fail if both CBDT and COLR are empty
-        if loader.glyphs.is_empty() && loader.colr_layers.is_empty() {
+        if loader.glyph_sources.is_empty() && loader.colr_layers.is_empty() {
             warn!("EmojiLoader: no glyphs were loaded");
             return None;
         }
 
         info!(
             "EmojiLoader: {} glyphs loaded, {} cmap entries",
-            loader.glyphs.len(),
+            loader.glyph_sources.len(),
             loader.cmap.len()
         );
 
@@ -507,7 +520,10 @@ impl EmojiLoader {
             );
         }
 
-        info!("CBLC: parsed {} glyphs total", self.glyphs.len());
+        info!(
+            "CBLC: indexed {} glyphs total (bitmaps decoded on demand)",
+            self.glyph_sources.len()
+        );
     }
 
     fn parse_index_subtable(
@@ -537,10 +553,14 @@ impl EmojiLoader {
                     let sbit_offset = image_data_offset + rel_offset;
                     let glyph_id = first_glyph + i as u16;
 
-                    if let Some(glyph) = self.parse_glyph(data, sbit_offset, image_format) {
-                        self.glyphs.insert(glyph_id, glyph);
-                        parsed_count += 1;
-                    }
+                    self.glyph_sources.insert(
+                        glyph_id,
+                        GlyphSource {
+                            offset: sbit_offset,
+                            image_format,
+                        },
+                    );
+                    parsed_count += 1;
                 }
                 trace!(
                     "IndexSubtable format 1: parsed {}/{} glyphs",
@@ -557,9 +577,13 @@ impl EmojiLoader {
                     let sbit_offset = image_data_offset + i * image_size;
                     let glyph_id = first_glyph + i as u16;
 
-                    if let Some(glyph) = self.parse_glyph(data, sbit_offset, image_format) {
-                        self.glyphs.insert(glyph_id, glyph);
-                    }
+                    self.glyph_sources.insert(
+                        glyph_id,
+                        GlyphSource {
+                            offset: sbit_offset,
+                            image_format,
+                        },
+                    );
                 }
             }
             3 => {
@@ -574,9 +598,13 @@ impl EmojiLoader {
                     let sbit_offset = image_data_offset + read_u16(data, offset_entry) as usize;
                     let glyph_id = first_glyph + i as u16;
 
-                    if let Some(glyph) = self.parse_glyph(data, sbit_offset, image_format) {
-                        self.glyphs.insert(glyph_id, glyph);
-                    }
+                    self.glyph_sources.insert(
+                        glyph_id,
+                        GlyphSource {
+                            offset: sbit_offset,
+                            image_format,
+                        },
+                    );
                 }
             }
             _ => {
@@ -902,15 +930,16 @@ impl EmojiLoader {
         })
     }
 
-    /// Get emoji bitmap by codepoint
-    pub fn get_glyph(&self, codepoint: u32) -> Option<&EmojiGlyph> {
-        let glyph_id = self.cmap.get(&codepoint)?;
-        self.glyphs.get(glyph_id)
+    /// Decode emoji bitmap by codepoint (CBDT bitmaps are decoded on demand)
+    pub fn get_glyph(&self, codepoint: u32) -> Option<EmojiGlyph> {
+        let glyph_id = *self.cmap.get(&codepoint)?;
+        self.decode_glyph(glyph_id)
     }
 
-    /// Get emoji bitmap by glyph ID (from CBDT)
-    pub fn get_glyph_by_id(&self, glyph_id: u16) -> Option<&EmojiGlyph> {
-        self.glyphs.get(&glyph_id)
+    /// Decode emoji bitmap by glyph ID (from CBDT); decoded on demand
+    pub fn decode_glyph(&self, glyph_id: u16) -> Option<EmojiGlyph> {
+        let src = self.glyph_sources.get(&glyph_id)?;
+        self.parse_glyph(self.font_data, src.offset, src.image_format)
     }
 
     /// Check if COLR glyph exists
@@ -944,7 +973,7 @@ impl EmojiLoader {
         // When ligature is applied, it becomes one glyph
         if infos.len() == 1 {
             let glyph_id = infos[0].glyph_id as u16;
-            let in_cbdt = self.glyphs.contains_key(&glyph_id);
+            let in_cbdt = self.glyph_sources.contains_key(&glyph_id);
             let in_colr = self.colr_layers.contains_key(&glyph_id);
             info!(
                 "  glyph_id={}, in_cbdt={}, in_colr={}",
@@ -962,7 +991,7 @@ impl EmojiLoader {
     /// Number of loaded glyphs
     #[allow(dead_code)]
     pub fn glyph_count(&self) -> usize {
-        self.glyphs.len()
+        self.glyph_sources.len()
     }
 
     /// Get glyph ID from codepoint
@@ -1098,12 +1127,7 @@ impl EmojiAtlas {
 
         // First try CBDT (bitmap)
         if let Some(glyph) = loader.get_glyph(codepoint) {
-            let glyph_data = EmojiGlyph {
-                width: glyph.width,
-                height: glyph.height,
-                data: glyph.data.clone(),
-            };
-            return self.add_glyph_data(codepoint, &glyph_data, cell_height);
+            return self.add_glyph_data(codepoint, &glyph, cell_height);
         }
 
         // If not in CBDT, try COLR (vector)
@@ -1160,18 +1184,13 @@ impl EmojiAtlas {
         trace!("  trying GSUB shaping...");
         if let Some(glyph_id) = loader.shape_grapheme(grapheme) {
             // First try CBDT (bitmap)
-            if let Some(glyph) = loader.get_glyph_by_id(glyph_id) {
-                let glyph_data = EmojiGlyph {
-                    width: glyph.width,
-                    height: glyph.height,
-                    data: glyph.data.clone(),
-                };
+            if let Some(glyph) = loader.decode_glyph(glyph_id) {
                 trace!(
                     "GSUB shaping succeeded (CBDT): {:?} -> glyph_id={}",
                     grapheme,
                     glyph_id
                 );
-                return self.add_glyph_data(grapheme_key, &glyph_data, cell_height);
+                return self.add_glyph_data(grapheme_key, &glyph, cell_height);
             }
             // If not in CBDT, try COLR (vector)
             if loader.has_colr_glyph(glyph_id) {
@@ -1205,12 +1224,7 @@ impl EmojiAtlas {
                 let cp = *c as u32;
                 // First try CBDT
                 if let Some(glyph) = loader.get_glyph(cp) {
-                    let glyph_data = EmojiGlyph {
-                        width: glyph.width,
-                        height: glyph.height,
-                        data: glyph.data.clone(),
-                    };
-                    return self.add_glyph_data(grapheme_key, &glyph_data, cell_height);
+                    return self.add_glyph_data(grapheme_key, &glyph, cell_height);
                 }
                 // Try COLR
                 if let Some(glyph_id) = loader.codepoint_to_glyph_id(cp) {
@@ -1450,5 +1464,38 @@ mod tests {
         assert!(is_emoji('❤'));
         assert!(!is_emoji('A'));
         assert!(!is_emoji('あ'));
+    }
+
+    /// CBDT bitmaps are indexed at load time and decoded on demand: loading a
+    /// color emoji font must not decode thousands of bitmaps up front.
+    #[test]
+    fn cdt_bitmaps_decode_lazily() {
+        let path = "/usr/share/fonts/noto/NotoColorEmoji.ttf";
+        if !std::path::Path::new(path).exists() {
+            eprintln!("skipping: {path} not installed");
+            return;
+        }
+
+        let loader = EmojiLoader::load(path, 32).expect("emoji font should load");
+
+        // Index parsed, but no bitmap decoded yet
+        assert!(
+            loader.glyph_count() > 1000,
+            "expected a large CBDT index, got {}",
+            loader.glyph_count()
+        );
+
+        // U+1F427 PENGUIN decodes on demand with plausible RGBA data
+        let glyph = loader.get_glyph(0x1F427).expect("penguin should decode");
+        assert!(glyph.width > 0 && glyph.height > 0);
+        assert_eq!(
+            glyph.data.len(),
+            (glyph.width * glyph.height * 4) as usize,
+            "RGBA buffer size must match dimensions"
+        );
+
+        // ...and decoding is repeatable (no state consumed on first decode)
+        let again = loader.get_glyph(0x1F427).expect("penguin decodes twice");
+        assert_eq!(again.data.len(), glyph.data.len());
     }
 }
