@@ -1,28 +1,27 @@
 # ncon systemd service file
 #
-# Installation:
-#   sudo cp ncon@.service /etc/systemd/system/
-#   sudo cp target/release/ncon /usr/local/bin/
-#
-# Enable on tty2:
-#   sudo systemctl disable getty@tty2
-#   sudo systemctl enable ncon@tty2
-#   sudo systemctl start ncon@tty2
+# Installation (or use scripts/install-system.sh):
+#   sudo install -Dm755 target/release/ncon /usr/local/bin/ncon
+#   sudo install -Dm644 ncon@.service /etc/systemd/system/ncon@.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ncon@tty1
 #
 # Configuration:
 #   System config: /etc/ncon/config.toml
-#   Generate with: sudo ncon --init-config=system,vim,jp
+#   Generate with: sudo ncon --init-config=system
 #
-# Usage:
-#   Switch to tty2 with Ctrl+Alt+F2
+# The unit holds its VT in VT_PROCESS mode (SIGUSR1=acquire, SIGUSR2=release),
+# so it releases the DRM master while switched away and re-acquires on return.
+# `Alias=autovt@.service` makes systemd-logind treat ncon as the login prompt
+# for the VTs it is enabled on (same mechanism kmsconvt@.service uses).
 
 [Unit]
 Description=ncon terminal emulator on %I
 Documentation=https://github.com/nefinita/ncon
 After=systemd-user-sessions.service plymouth-quit-wait.service
 After=rc-local.service
-Before=getty@%i.service
-Conflicts=getty@%i.service
+Before=getty@%i.service getty.target
+Conflicts=getty@%i.service kmsconvt@%i.service
 ConditionPathExists=/dev/%I
 
 [Service]
@@ -38,18 +37,19 @@ TTYPath=/dev/%I
 TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
+UtmpIdentifier=%I
 
-# Restart on failure
+# Back to a login prompt after logout, and after crashes
 Restart=always
 RestartSec=1
 
-# Resource limits
 LimitNOFILE=65535
 
-# Security (allow DRM/input access and login to work)
-# login requires SETUID/SETGID to switch to user
+# DRM/KMS + VT control, plus SETUID/SETGID so the login child can switch user
 CapabilityBoundingSet=CAP_SYS_TTY_CONFIG CAP_SYS_ADMIN CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_DAC_OVERRIDE CAP_AUDIT_WRITE CAP_CHOWN CAP_FOWNER
 AmbientCapabilities=CAP_SYS_TTY_CONFIG
 
 [Install]
-WantedBy=multi-user.target
+Alias=autovt@.service
+WantedBy=getty.target
+DefaultInstance=tty1
