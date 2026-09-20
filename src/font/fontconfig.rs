@@ -5,7 +5,7 @@
 use anyhow::{anyhow, Result};
 use fontconfig::Fontconfig;
 use log::{info, warn};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Font search result
 #[derive(Debug, Clone)]
@@ -161,11 +161,24 @@ pub fn load_font_file(path: &std::path::Path) -> Result<Vec<u8>> {
 
 /// Resolve a font specifier: if it's a valid file path, read it directly.
 /// Otherwise, treat it as a font family name and search via fontconfig.
+///
+/// Prefer [`resolve_font_path`] + [`crate::font::loader::load_font_static`],
+/// which map the file instead of copying it into anonymous memory.
+#[allow(dead_code)]
 pub fn resolve_font(specifier: &str) -> Result<Vec<u8>> {
-    let path = std::path::Path::new(specifier);
+    let path = resolve_font_path(specifier)?;
+    load_font_file(&path)
+}
+
+/// Resolve a font specifier to a file path (no read, no cache).
+///
+/// Same lookup order as [`resolve_font`]: absolute path, fontconfig family
+/// name, then relative path.
+pub fn resolve_font_path(specifier: &str) -> Result<PathBuf> {
+    let path = Path::new(specifier);
     if path.is_absolute() && path.exists() {
         info!("Font loaded from path: {}", specifier);
-        return load_font_file(path);
+        return Ok(path.to_path_buf());
     }
 
     // Try as font family name via fontconfig
@@ -177,13 +190,13 @@ pub fn resolve_font(specifier: &str) -> Result<Vec<u8>> {
             font_match.family,
             font_match.path.display()
         );
-        return load_font_file(&font_match.path);
+        return Ok(font_match.path);
     }
 
     // Last resort: try as relative path
     if path.exists() {
         info!("Font loaded from relative path: {}", specifier);
-        return load_font_file(path);
+        return Ok(path.to_path_buf());
     }
 
     Err(anyhow!(

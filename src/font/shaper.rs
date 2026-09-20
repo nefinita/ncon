@@ -8,7 +8,6 @@
 
 use crate::font::atlas::GlyphKey;
 use crate::terminal::grid::Grid;
-use fontdue::Font;
 use log::debug;
 use std::str::FromStr;
 
@@ -66,6 +65,15 @@ impl TextShaper {
         })
     }
 
+    /// Look up a glyph index in the main font (0 = not present).
+    ///
+    /// Zero-copy lookup through the rustybuzz face; avoids keeping a
+    /// `fontdue::Font` alive just for this (fontdue inflates large CJK
+    /// fonts by an order of magnitude).
+    pub fn glyph_index(&self, ch: char) -> u16 {
+        self.face_main.glyph_index(ch).map_or(0, |g| g.0)
+    }
+
     /// Shape one line
     ///
     /// Scans cells in line and shapes consecutive half-width character segments
@@ -76,7 +84,6 @@ impl TextShaper {
         &mut self,
         grid: &Grid,
         row: usize,
-        font_main: &Font,
     ) -> Vec<(usize, ShapedGlyph)> {
         let cols = grid.cols();
 
@@ -126,7 +133,7 @@ impl TextShaper {
             }
 
             // No glyph in main font -> pass through
-            if font_main.lookup_glyph_index(ch) == 0 {
+            if self.glyph_index(ch) == 0 {
                 self.flush_segment_internal();
                 self.result_buf.push((
                     col,

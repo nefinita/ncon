@@ -26,6 +26,13 @@ mod session;
 mod terminal;
 mod utils;
 
+#[cfg(feature = "mem-debug")]
+mod mem_track;
+
+#[cfg(feature = "mem-debug")]
+#[global_allocator]
+static MEM_TRACK: mem_track::Counting = mem_track::Counting;
+
 use anyhow::{anyhow, Context, Result};
 use glow::HasContext;
 use log::{info, trace, warn};
@@ -822,10 +829,12 @@ fn find_drm_device() -> Result<String> {
 }
 
 /// Load font for testing: NCON_FONT env var -> ligature font -> system font
-fn load_test_font() -> Result<Vec<u8>> {
+///
+/// Uses the shared mmap loader so the test path matches the runtime path.
+fn load_test_font() -> Result<&'static [u8]> {
     // Use environment variable if specified
     if let Ok(path) = std::env::var("NCON_FONT") {
-        let data = std::fs::read(&path)
+        let data = font::loader::load_font_static(std::path::Path::new(&path))
             .with_context(|| format!("Cannot read font specified by NCON_FONT: {}", path))?;
         eprintln!("Font: {} (NCON_FONT)", path);
         return Ok(data);
@@ -842,7 +851,7 @@ fn load_test_font() -> Result<Vec<u8>> {
     ];
 
     for path in &ligature_fonts {
-        if let Ok(data) = std::fs::read(path) {
+        if let Ok(data) = font::loader::load_font_static(std::path::Path::new(path)) {
             eprintln!("Font: {} (ligature-capable)", path);
             return Ok(data);
         }
@@ -850,7 +859,9 @@ fn load_test_font() -> Result<Vec<u8>> {
 
     // Fallback: system font
     eprintln!("Ligature font not found - falling back to system font");
-    font::atlas::load_system_font()
+    Ok(Box::leak(
+        font::atlas::load_system_font()?.into_boxed_slice(),
+    ))
 }
 
 /// Print help message
@@ -918,23 +929,21 @@ For more information, see: https://github.com/nefinita/ncon
 /// Shaper test mode: verify text shaping without GPU
 fn test_shaper_mode() -> Result<()> {
     eprintln!("=== Text Shaper Test ===\n");
+    #[cfg(feature = "mem-debug")]
+    mem_track::snapshot("start");
 
     // Use NCON_FONT env var or prioritize ligature fonts
-    let font_data: &'static [u8] = Box::leak(
-        load_test_font()
-            .context("Failed to load font")?
-            .into_boxed_slice(),
-    );
+    let font_data: &'static [u8] = load_test_font().context("Failed to load font")?;
+    #[cfg(feature = "mem-debug")]
+    mem_track::snapshot("after main font read+leak");
     let cjk_font_data: Option<&'static [u8]> =
         font::atlas::load_cjk_font().map(|d| -> &'static [u8] { Box::leak(d.into_boxed_slice()) });
-
-    // fontdue Font (for glyph existence check)
-    let font_main = fontdue::Font::from_bytes(font_data, fontdue::FontSettings::default())
-        .map_err(|e| anyhow!("Failed to load font: {}", e))?;
+    #[cfg(feature = "mem-debug")]
+    mem_track::snapshot("after cjk font read+leak");
 
     eprintln!("Font loaded");
 
-    // Create shaper
+    // Create shaper (rustybuzz; zero-copy glyph lookups)
     let mut shaper = match font::shaper::TextShaper::new(font_data, cjk_font_data) {
         Some(s) => s,
         None => {
@@ -942,6 +951,8 @@ fn test_shaper_mode() -> Result<()> {
             return Ok(());
         }
     };
+    #[cfg(feature = "mem-debug")]
+    mem_track::snapshot("after TextShaper::new");
     eprintln!("Shaper initialized\n");
 
     // Test strings
@@ -974,7 +985,7 @@ fn test_shaper_mode() -> Result<()> {
         }
 
         // Execute shaping
-        let shaped = shaper.shape_line(&grid, 0, &font_main);
+        let shaped = shaper.shape_line(&grid, 0);
 
         eprintln!("Input: \"{}\"", test);
         eprintln!("  Shaping result ({} glyphs):", shaped.len());
@@ -983,7 +994,7 @@ fn test_shaper_mode() -> Result<()> {
         let mut has_calt = false;
         for (col, sg) in &shaped {
             // Compare with default glyph ID (without shaping)
-            let default_gid = font_main.lookup_glyph_index(sg.ch);
+            let default_gid = shaper.glyph_index(sg.ch);
             let is_substituted =
                 sg.key.glyph_id != 0 && default_gid != 0 && sg.key.glyph_id != default_gid;
             let is_merged = sg.cell_span > 1;
@@ -1670,9 +1681,14 @@ Make sure seatd/logind is running and you're on an active VT."
 
     // Load font (supports both file paths and font family names via fontconfig)
     // Falls back to system monospace if the configured font cannot be resolved
-    let font_data: &'static [u8] = if !cfg.font.main.is_empty() {
-        match font::fontconfig::resolve_font(&cfg.font.main) {
-            Ok(data) => Box::leak(data.into_boxed_slice()),
+    let font_data: &'static [u8] = if !cfg.font.main.is_empty() {        // mmap + de-duplicate (see font::loader): keeps big CJK fonts
+        // file-backed instead of copying them into anonymous memory
+        let resolved = font::fontconfig::resolve_font_path(&cfg.font.main).and_then(|p| {
+            font::loader::load_font_static(&p)
+                .map_err(|e| anyhow!("Failed to map font file {}: {}", p.display(), e))
+        });
+        match resolved {
+            Ok(data) => data,
             Err(e) => {
                 warn!(
                     "Font \"{}\" not found ({}), falling back to system monospace",
@@ -1708,8 +1724,12 @@ Make sure seatd/logind is running and you're on an active VT."
 
     // Load CJK font (supports file paths and font names, continue on failure)
     let cjk_font_data: Option<&[u8]> = if !cfg.font.cjk.is_empty() {
-        match font::fontconfig::resolve_font(&cfg.font.cjk) {
-            Ok(d) => Some(Box::leak(d.into_boxed_slice()) as &'static [u8]),
+        let resolved = font::fontconfig::resolve_font_path(&cfg.font.cjk).and_then(|p| {
+            font::loader::load_font_static(&p)
+                .map_err(|e| anyhow!("Failed to map font file {}: {}", p.display(), e))
+        });
+        match resolved {
+            Ok(d) => Some(d),
             Err(e) => {
                 warn!("CJK font \"{}\" not found ({}), disabled", cfg.font.cjk, e);
                 None
@@ -1721,8 +1741,12 @@ Make sure seatd/logind is running and you're on an active VT."
 
     // Load symbols/Nerd Font (supports file paths and font names, continue on failure)
     let symbols_font_data: Option<&[u8]> = if !cfg.font.symbols.is_empty() {
-        match font::fontconfig::resolve_font(&cfg.font.symbols) {
-            Ok(d) => Some(Box::leak(d.into_boxed_slice()) as &'static [u8]),
+        let resolved = font::fontconfig::resolve_font_path(&cfg.font.symbols).and_then(|p| {
+            font::loader::load_font_static(&p)
+                .map_err(|e| anyhow!("Failed to map font file {}: {}", p.display(), e))
+        });
+        match resolved {
+            Ok(d) => Some(d),
             Err(e) => {
                 warn!(
                     "Symbols font \"{}\" not found ({}), disabled",
@@ -1744,6 +1768,14 @@ Make sure seatd/logind is running and you're on an active VT."
     let subpixel_bgr = lcd_subpixel.is_bgr();
     let hinting_mode = font::freetype::HintingMode::from_str(&cfg.font.lcd_hinting);
 
+    info!(
+        "Fonts mapped: {} file(s) (mmap, shared)",
+        font::loader::mapped_font_count()
+    );
+
+    #[cfg(feature = "mem-debug")]
+    mem_track::snapshot("Phase2: after font data (mmap, shared)");
+
     // Create FreeType + LCD subpixel rendering atlas
     info!("Creating FreeType LCD atlas...");
     let mut glyph_atlas = font::lcd_atlas::LcdGlyphAtlas::new(
@@ -1759,6 +1791,8 @@ Make sure seatd/logind is running and you're on an active VT."
         hinting_mode,
     )
     .context("Failed to create LCD glyph atlas")?;
+    #[cfg(feature = "mem-debug")]
+    mem_track::snapshot("Phase2: after LCD atlas (FreeType faces + atlas)");
 
     info!(
         "FreeType LCD atlas initialized: cell={}x{:.0}, subpixel_pos={}, hinting={:?}",
@@ -1768,18 +1802,10 @@ Make sure seatd/logind is running and you're on an active VT."
         hinting_mode
     );
 
-    // Text shaper for ligature support (rustybuzz)
-    let font_main_fontdue = fontdue::Font::from_bytes(
-        font_data as &[u8],
-        fontdue::FontSettings::default(),
-    )
-    .ok();
-
-    let mut text_shaper = if font_main_fontdue.is_some() {
-        font::shaper::TextShaper::new(font_data, cjk_font_data)
-    } else {
-        None
-    };
+    // Text shaper for ligature support (rustybuzz; zero-copy glyph lookups).
+    // NOTE: deliberately does not keep a `fontdue::Font` alive — fontdue
+    // inflates large CJK fonts by roughly an order of magnitude in memory.
+    let mut text_shaper = font::shaper::TextShaper::new(font_data, cjk_font_data);
     if text_shaper.is_some() {
         info!("Text shaper initialized (ligatures enabled)");
     }
@@ -1811,6 +1837,8 @@ Make sure seatd/logind is running and you're on an active VT."
     } else {
         info!("No emoji font (monochrome fallback)");
     }
+    #[cfg(feature = "mem-debug")]
+    mem_track::snapshot("Phase2: after emoji atlas");
 
     // Create LCD text renderer (FreeType + linear color space compositing)
     // Uses GPU instancing: 1 draw call per flush, 66% less data transfer
@@ -1852,6 +1880,8 @@ Make sure seatd/logind is running and you're on an active VT."
         .context("Failed to initialize FBO")?;
 
     info!("Phase 2 initialization complete");
+    #[cfg(feature = "mem-debug")]
+    mem_track::snapshot("Phase2: complete (GPU renderers + FBO)");
     info!("Phase 2 complete");
 
     // Phase 3: Terminal initialization
@@ -4298,10 +4328,8 @@ Make sure seatd/logind is running and you're on an active VT."
             // Build shaped glyph map for this row (ligature detection)
             // Only shape when not scrolling back (scroll_offset == 0)
             let shaped_glyphs = if term.scroll_offset == 0 {
-                if let (Some(ref mut shaper), Some(ref fontdue_font)) =
-                    (&mut text_shaper, &font_main_fontdue)
-                {
-                    Some(shaper.shape_line(grid, row, fontdue_font))
+                if let Some(ref mut shaper) = &mut text_shaper {
+                    Some(shaper.shape_line(grid, row))
                 } else {
                     None
                 }

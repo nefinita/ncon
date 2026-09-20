@@ -79,6 +79,8 @@ udev = "0.8"
 [features]
 default = ["seatd"]
 seatd = ["libseat"]
+# Heap accounting for memory debugging (see src/mem_track.rs)
+mem-debug = []
 
 [dev-dependencies]
 tempfile = "3"

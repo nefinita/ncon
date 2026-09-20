@@ -5,9 +5,8 @@
 //! - COLR/CPAL: Vector format (layer compositing)
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use log::{info, trace, warn};
 
@@ -146,53 +145,45 @@ pub struct EmojiLoader {
     colr_layers: HashMap<u16, Vec<ColrLayer>>,
     /// CPAL color palette (RGBA)
     cpal_colors: Vec<(u8, u8, u8, u8)>,
-    /// fontdue Font (for COLR rasterization)
-    fontdue_font: Option<fontdue::Font>,
+    /// fontdue Font (for COLR rasterization); created lazily on first use
+    fontdue_font: OnceLock<Option<fontdue::Font>>,
+    /// Raw font data (kept for lazy fontdue initialization)
+    font_data: &'static [u8],
 }
 
 impl EmojiLoader {
     /// Load emoji from font file
     pub fn load<P: AsRef<Path>>(path: P, target_size: u32) -> Option<Self> {
         info!("EmojiLoader: loading from {:?}", path.as_ref());
-        let mut file = match File::open(path.as_ref()) {
-            Ok(f) => f,
+
+        // mmap + share the font data (file-backed, one copy per path)
+        let mapped = crate::font::loader::load_font_static(path.as_ref());
+        let static_data: &'static [u8] = match mapped {
+            Ok(data) => data,
             Err(e) => {
-                warn!("EmojiLoader: cannot open file: {}", e);
+                warn!("EmojiLoader: cannot map font file: {}", e);
                 return None;
             }
         };
-        let mut data = Vec::new();
-        if let Err(e) = file.read_to_end(&mut data) {
-            warn!("EmojiLoader: failed to read file: {}", e);
-            return None;
-        }
-        info!("EmojiLoader: {} bytes read", data.len());
+        info!("EmojiLoader: {} bytes mapped", static_data.len());
 
-        // Create 'static lifetime data for rustybuzz/fontdue
-        // Note: This intentionally leaks memory because rustybuzz::Face requires 'static lifetime.
-        // Emoji font is loaded once at startup, so this is acceptable.
-        let static_data: &'static [u8] = Box::leak(data.into_boxed_slice());
         let face = rustybuzz::Face::from_slice(static_data, 0);
         if face.is_some() {
             info!("EmojiLoader: rustybuzz Face created successfully (GSUB support)");
         }
 
-        // Create fontdue Font (for COLR rasterization)
-        let fontdue_font =
-            fontdue::Font::from_bytes(static_data, fontdue::FontSettings::default()).ok();
-        if fontdue_font.is_some() {
-            info!("EmojiLoader: fontdue Font created successfully (COLR support)");
-        }
-
-        Self::from_bytes_with_face(static_data, target_size, face, fontdue_font)
+        // NOTE: the fontdue Font (only used for COLR rasterization) is created
+        // lazily on first use. fontdue inflates large fonts by roughly an order
+        // of magnitude, and bitmap fonts (CBDT/CBLC, e.g. Noto Color Emoji)
+        // never need it at all.
+        Self::from_bytes_with_face(static_data, target_size, face)
     }
 
     /// Load from bytes (with rustybuzz Face + fontdue Font)
     fn from_bytes_with_face(
-        data: &[u8],
+        data: &'static [u8],
         target_size: u32,
         face: Option<rustybuzz::Face<'static>>,
-        fontdue_font: Option<fontdue::Font>,
     ) -> Option<Self> {
         // Parse OpenType header
         if data.len() < 12 {
@@ -216,27 +207,20 @@ impl EmojiLoader {
                 }
                 let font_offset = read_u32(data, 12) as usize;
                 info!("EmojiLoader: TTC first font offset = {}", font_offset);
-                return Self::parse_font_at_offset(
-                    data,
-                    font_offset,
-                    target_size,
-                    face,
-                    fontdue_font,
-                );
+                return Self::parse_font_at_offset(data, font_offset, target_size, face);
             }
             warn!("EmojiLoader: unknown font format: 0x{:08X}", sfnt_version);
             return None;
         }
 
-        Self::parse_font_at_offset(data, 0, target_size, face, fontdue_font)
+        Self::parse_font_at_offset(data, 0, target_size, face)
     }
 
     fn parse_font_at_offset(
-        data: &[u8],
+        data: &'static [u8],
         font_offset: usize,
         target_size: u32,
         face: Option<rustybuzz::Face<'static>>,
-        fontdue_font: Option<fontdue::Font>,
     ) -> Option<Self> {
         let mut loader = Self {
             glyphs: HashMap::new(),
@@ -245,7 +229,8 @@ impl EmojiLoader {
             face,
             colr_layers: HashMap::new(),
             cpal_colors: Vec::new(),
-            fontdue_font,
+            fontdue_font: OnceLock::new(),
+            font_data: data,
         };
 
         if font_offset + 12 > data.len() {
@@ -805,7 +790,13 @@ impl EmojiLoader {
     /// Rasterize COLR glyph (composite multiple layers)
     fn render_colr_glyph(&self, glyph_id: u16, size: f32) -> Option<EmojiGlyph> {
         let layers = self.colr_layers.get(&glyph_id)?;
-        let font = self.fontdue_font.as_ref()?;
+        // Lazily build the fontdue Font — only COLR fonts need it.
+        let font = self
+            .fontdue_font
+            .get_or_init(|| {
+                fontdue::Font::from_bytes(self.font_data, fontdue::FontSettings::default()).ok()
+            })
+            .as_ref()?;
 
         if layers.is_empty() {
             return None;
