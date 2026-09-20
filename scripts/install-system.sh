@@ -22,9 +22,11 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 BIN_SRC="$REPO/target/release/ncon"
 UNIT_SRC="$REPO/ncon@.service"
 TEST_TTY8=0
+FORCE_CONFIG=0
 for arg in "$@"; do
     case "$arg" in
         --test-tty8) TEST_TTY8=1 ;;
+        --force-config) FORCE_CONFIG=1 ;;
         -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "unknown option: $arg"; exit 1 ;;
     esac
@@ -47,13 +49,36 @@ install -Dm644 "$UNIT_SRC" /etc/systemd/system/ncon@.service
 
 echo "== 3/7 config"
 mkdir -p /etc/ncon
-if [ -f /etc/ncon/config.toml ]; then
-    echo "   /etc/ncon/config.toml exists, left untouched"
-elif [ -f /etc/bcon/config.toml ]; then
-    cp /etc/bcon/config.toml /etc/ncon/config.toml
-    echo "   copied /etc/bcon/config.toml -> /etc/ncon/config.toml"
+USER_HOME=""
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    USER_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+fi
+
+CANDIDATES=()
+if [ -n "$USER_HOME" ]; then
+    # the invoking user's own config is the most specific source
+    CANDIDATES+=("$USER_HOME/.config/ncon/config.toml" "$USER_HOME/.config/bcon/config.toml")
+fi
+CANDIDATES+=(/etc/bcon/config.toml)
+
+if [ -f /etc/ncon/config.toml ] && [ "$FORCE_CONFIG" -eq 0 ]; then
+    echo "   /etc/ncon/config.toml exists, left untouched (--force-config to overwrite)"
 else
-    /usr/local/bin/ncon --init-config=system >/dev/null && echo "   generated defaults"
+    copied=0
+    for src in "${CANDIDATES[@]}"; do
+        if [ -f "$src" ]; then
+            cp "$src" /etc/ncon/config.toml
+            echo "   $src -> /etc/ncon/config.toml"
+            copied=1
+            break
+        fi
+    done
+    if [ "$copied" -eq 0 ]; then
+        /usr/local/bin/ncon --init-config=system >/dev/null && echo "   generated defaults"
+    fi
+fi
+if ! grep -qE '^\s*ime\s*=\s*true' /etc/ncon/config.toml; then
+    echo "   NOTE: ime is not enabled in /etc/ncon/config.toml — set 'ime = true' under [terminal]"
 fi
 systemctl daemon-reload
 
