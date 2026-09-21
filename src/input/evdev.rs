@@ -873,6 +873,9 @@ pub fn keysym_to_bytes(sym: xkb::Keysym, utf8: &str) -> Vec<u8> {
         _ if raw == keysyms::KEY_Return || raw == keysyms::KEY_KP_Enter => vec![b'\r'],
         _ if raw == keysyms::KEY_BackSpace => vec![0x7f],
         _ if raw == keysyms::KEY_Tab => vec![b'\t'],
+        // Shift+Tab arrives as ISO_Left_Tab; xterm-compatible terminals send
+        // the back-tab sequence CSI Z for it (TUIs rely on this).
+        _ if raw == keysyms::KEY_ISO_Left_Tab => b"\x1b[Z".to_vec(),
         _ if raw == keysyms::KEY_Escape => vec![0x1b],
 
         // Cursor keys
@@ -902,6 +905,46 @@ pub fn keysym_to_bytes(sym: xkb::Keysym, utf8: &str) -> Vec<u8> {
         _ if raw == keysyms::KEY_F10 => b"\x1b[21~".to_vec(),
         _ if raw == keysyms::KEY_F11 => b"\x1b[23~".to_vec(),
         _ if raw == keysyms::KEY_F12 => b"\x1b[24~".to_vec(),
+
+        // Keypad, numbers/operators (NumLock on): xkb reports KP_* keysyms,
+        // terminals translate them to their ASCII equivalents.
+        _ if raw == keysyms::KEY_KP_0 => vec![b'0'],
+        _ if raw == keysyms::KEY_KP_1 => vec![b'1'],
+        _ if raw == keysyms::KEY_KP_2 => vec![b'2'],
+        _ if raw == keysyms::KEY_KP_3 => vec![b'3'],
+        _ if raw == keysyms::KEY_KP_4 => vec![b'4'],
+        _ if raw == keysyms::KEY_KP_5 => vec![b'5'],
+        _ if raw == keysyms::KEY_KP_6 => vec![b'6'],
+        _ if raw == keysyms::KEY_KP_7 => vec![b'7'],
+        _ if raw == keysyms::KEY_KP_8 => vec![b'8'],
+        _ if raw == keysyms::KEY_KP_9 => vec![b'9'],
+        _ if raw == keysyms::KEY_KP_Decimal => vec![b'.'],
+        _ if raw == keysyms::KEY_KP_Separator => vec![b','],
+        _ if raw == keysyms::KEY_KP_Add => vec![b'+'],
+        _ if raw == keysyms::KEY_KP_Subtract => vec![b'-'],
+        _ if raw == keysyms::KEY_KP_Multiply => vec![b'*'],
+        _ if raw == keysyms::KEY_KP_Divide => vec![b'/'],
+        _ if raw == keysyms::KEY_KP_Equal => vec![b'='],
+        _ if raw == keysyms::KEY_KP_Space => vec![b' '],
+        _ if raw == keysyms::KEY_KP_Tab => vec![b'\t'],
+        _ if raw == keysyms::KEY_KP_BackTab => b"\x1b[Z".to_vec(),
+
+        // Keypad with NumLock off: acts as navigation keys
+        _ if raw == keysyms::KEY_KP_Home => b"\x1b[H".to_vec(),
+        _ if raw == keysyms::KEY_KP_Up => b"\x1b[A".to_vec(),
+        _ if raw == keysyms::KEY_KP_Prior || raw == keysyms::KEY_KP_Page_Up => {
+            b"\x1b[5~".to_vec()
+        }
+        _ if raw == keysyms::KEY_KP_Left => b"\x1b[D".to_vec(),
+        _ if raw == keysyms::KEY_KP_Begin => b"\x1b[E".to_vec(),
+        _ if raw == keysyms::KEY_KP_Right => b"\x1b[C".to_vec(),
+        _ if raw == keysyms::KEY_KP_End => b"\x1b[F".to_vec(),
+        _ if raw == keysyms::KEY_KP_Down => b"\x1b[B".to_vec(),
+        _ if raw == keysyms::KEY_KP_Next || raw == keysyms::KEY_KP_Page_Down => {
+            b"\x1b[6~".to_vec()
+        }
+        _ if raw == keysyms::KEY_KP_Insert => b"\x1b[2~".to_vec(),
+        _ if raw == keysyms::KEY_KP_Delete => b"\x1b[3~".to_vec(),
 
         // Ignore modifier keys (don't generate characters by themselves)
         _ if raw == keysyms::KEY_Shift_L
@@ -1023,6 +1066,14 @@ pub fn keysym_to_bytes_with_mods(
         }
     }
 
+    // Shift+Tab (back-tab): CSI Z, or CSI 1;{mod}Z with additional modifiers
+    if raw == keysyms::KEY_ISO_Left_Tab || (raw == keysyms::KEY_Tab && shift) {
+        if ctrl || alt {
+            return format!("\x1b[1;{}Z", mod_code).into_bytes();
+        }
+        return b"\x1b[Z".to_vec();
+    }
+
     // Cursor keys
     if let Some(cursor_char) = match raw {
         _ if raw == keysyms::KEY_Up => Some(b'A'),
@@ -1031,6 +1082,14 @@ pub fn keysym_to_bytes_with_mods(
         _ if raw == keysyms::KEY_Left => Some(b'D'),
         _ if raw == keysyms::KEY_Home => Some(b'H'),
         _ if raw == keysyms::KEY_End => Some(b'F'),
+        // Keypad navigation keys (NumLock off)
+        _ if raw == keysyms::KEY_KP_Up => Some(b'A'),
+        _ if raw == keysyms::KEY_KP_Down => Some(b'B'),
+        _ if raw == keysyms::KEY_KP_Right => Some(b'C'),
+        _ if raw == keysyms::KEY_KP_Left => Some(b'D'),
+        _ if raw == keysyms::KEY_KP_Home => Some(b'H'),
+        _ if raw == keysyms::KEY_KP_End => Some(b'F'),
+        _ if raw == keysyms::KEY_KP_Begin => Some(b'E'),
         _ => None,
     } {
         if has_mods {
@@ -1045,12 +1104,16 @@ pub fn keysym_to_bytes_with_mods(
         }
     }
 
-    // Insert/Delete/PageUp/PageDown
+    // Insert/Delete/PageUp/PageDown (including the keypad variants)
     if let Some((code, suffix)) = match raw {
         _ if raw == keysyms::KEY_Insert => Some((2, b'~')),
         _ if raw == keysyms::KEY_Delete => Some((3, b'~')),
         _ if raw == keysyms::KEY_Page_Up => Some((5, b'~')),
         _ if raw == keysyms::KEY_Page_Down => Some((6, b'~')),
+        _ if raw == keysyms::KEY_KP_Insert => Some((2, b'~')),
+        _ if raw == keysyms::KEY_KP_Delete => Some((3, b'~')),
+        _ if raw == keysyms::KEY_KP_Prior || raw == keysyms::KEY_KP_Page_Up => Some((5, b'~')),
+        _ if raw == keysyms::KEY_KP_Next || raw == keysyms::KEY_KP_Page_Down => Some((6, b'~')),
         _ => None,
     } {
         if has_mods {
@@ -1215,7 +1278,8 @@ fn encode_kitty_keyboard(
     // Exception: if report_events is set and it's a release, encode it
     let legacy_key_code = match raw {
         _ if raw == keysyms::KEY_Return || raw == keysyms::KEY_KP_Enter => Some(13),
-        _ if raw == keysyms::KEY_Tab => Some(9),
+        // Shift+Tab reports as ISO_Left_Tab; kitty clients expect CSI 9;2u
+        _ if raw == keysyms::KEY_Tab || raw == keysyms::KEY_ISO_Left_Tab => Some(9),
         _ if raw == keysyms::KEY_BackSpace => Some(127),
         _ => None,
     };
@@ -1307,4 +1371,80 @@ fn encode_kitty_keyboard(
 
     // Not handled by Kitty protocol - fall back to legacy encoding
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ks(raw: u32) -> xkb::Keysym {
+        xkb::Keysym::new(raw)
+    }
+
+    fn cfg() -> KeyboardConfig {
+        KeyboardConfig::default()
+    }
+
+    #[test]
+    fn back_tab_is_encoded() {
+        // Shift+Tab arrives as ISO_Left_Tab
+        assert_eq!(
+            keysym_to_bytes(ks(keysyms::KEY_ISO_Left_Tab), ""),
+            b"\x1b[Z".to_vec()
+        );
+        assert_eq!(
+            keysym_to_bytes_with_mods(ks(keysyms::KEY_ISO_Left_Tab), "", false, false, true, &cfg()),
+            b"\x1b[Z".to_vec()
+        );
+        // layouts that report plain Tab + shift
+        assert_eq!(
+            keysym_to_bytes_with_mods(ks(keysyms::KEY_Tab), "", false, false, true, &cfg()),
+            b"\x1b[Z".to_vec()
+        );
+        // with Ctrl it becomes CSI 1;6Z
+        assert_eq!(
+            keysym_to_bytes_with_mods(ks(keysyms::KEY_ISO_Left_Tab), "", true, false, true, &cfg()),
+            b"\x1b[1;6Z".to_vec()
+        );
+        // IME ForwardKey path (fcitx5 forwards the raw keysym)
+        assert_eq!(
+            keysym_to_bytes_from_sym(keysyms::KEY_ISO_Left_Tab),
+            b"\x1b[Z".to_vec()
+        );
+    }
+
+    #[test]
+    fn kitty_shift_tab() {
+        let cfg = KeyboardConfig {
+            kitty_flags: 1, // disambiguate escape codes
+            ..Default::default()
+        };
+        assert_eq!(
+            keysym_to_bytes_with_mods(ks(keysyms::KEY_ISO_Left_Tab), "", false, false, true, &cfg),
+            b"\x1b[9;2u".to_vec()
+        );
+    }
+
+    #[test]
+    fn keypad_keys_are_encoded() {
+        let cfg = cfg();
+        let plain = |raw: u32| keysym_to_bytes(ks(raw), "");
+        assert_eq!(plain(keysyms::KEY_KP_1), b"1".to_vec());
+        assert_eq!(plain(keysyms::KEY_KP_9), b"9".to_vec());
+        assert_eq!(plain(keysyms::KEY_KP_0), b"0".to_vec());
+        assert_eq!(plain(keysyms::KEY_KP_Decimal), b".".to_vec());
+        assert_eq!(plain(keysyms::KEY_KP_Add), b"+".to_vec());
+        assert_eq!(plain(keysyms::KEY_KP_Subtract), b"-".to_vec());
+        assert_eq!(plain(keysyms::KEY_KP_Multiply), b"*".to_vec());
+        assert_eq!(plain(keysyms::KEY_KP_Divide), b"/".to_vec());
+        assert_eq!(plain(keysyms::KEY_KP_Enter), b"\r".to_vec());
+        // NumLock off: navigation
+        assert_eq!(plain(keysyms::KEY_KP_Up), b"\x1b[A".to_vec());
+        assert_eq!(plain(keysyms::KEY_KP_Prior), b"\x1b[5~".to_vec());
+        assert_eq!(
+            keysym_to_bytes_with_mods(ks(keysyms::KEY_KP_Down), "", false, false, false, &cfg),
+            b"\x1b[B".to_vec()
+        );
+        assert_eq!(keysym_to_bytes_from_sym(keysyms::KEY_KP_5), b"5".to_vec());
+    }
 }

@@ -1,13 +1,48 @@
 //! fcitx5 D-Bus IME integration
 //!
-//! Implement Japanese input (IME) via fcitx5 D-Bus interface.
-//! D-Bus communication runs in a separate thread (tokio runtime),
-//! communicating with main thread via mpsc channel.
-//! Works normally even if fcitx5 is not running (fallback).
+//! Talks to fcitx5 over D-Bus (`org.fcitx.Fcitx.InputMethod1` /
+//! `InputContext1`). D-Bus runs in a separate thread (tokio runtime) and
+//! communicates with the main thread via an mpsc channel. Everything keeps
+//! working (direct keyboard input) when fcitx5 is not available.
+//!
+//! When ncon runs as root (systemd service) it must not *fight* the user's
+//! desktop IME: the preferred path is to reuse the fcitx5 instance on the
+//! user's own session bus (`/run/user/<uid>/bus`). Only when that is not
+//! reachable do we start a **fully isolated** instance (private D-Bus, private
+//! `XDG_RUNTIME_DIR`, no `--replace`, display frontends disabled) so it cannot
+//! interfere with the desktop session.
 
 use anyhow::{anyhow, Result};
 use log::{debug, info, warn};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+
+/// Which fcitx5 instance ncon should talk to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImeBackend {
+    /// Reuse the user's session bus when possible, else start an isolated one.
+    #[default]
+    Auto,
+    /// Only ever use the user's session bus (never start a private instance).
+    Session,
+    /// Always start a private, isolated instance.
+    Isolated,
+}
+
+impl ImeBackend {
+    /// Parse the `terminal.ime_backend` config value.
+    pub fn from_config(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "session" | "shared" | "desktop" => Self::Session,
+            "isolated" | "private" => Self::Isolated,
+            _ => Self::Auto,
+        }
+    }
+}
+
+/// Set once the user's session bus has been tried, so the retry loop falls
+/// back to an isolated instance instead of retrying the session bus forever.
+static SESSION_BUS_TRIED: AtomicBool = AtomicBool::new(false);
 
 /// Ensure D-Bus session bus and fcitx5 are available.
 ///
@@ -156,7 +191,7 @@ pub fn start_fcitx5() {
 /// `child_uid`: UID of the PTY child process (from `Terminal::pty.child_uid()`)
 /// Returns true if fcitx5 was actually launched (or attempted).
 /// Returns false if conditions weren't met (no user logged in, etc.).
-pub fn start_fcitx5_as_user(child_uid: Option<u32>) -> bool {
+pub fn start_fcitx5_as_user(child_uid: Option<u32>, backend: ImeBackend) -> bool {
     if unsafe { libc::getuid() } != 0 {
         start_fcitx5();
         return true;
@@ -193,7 +228,47 @@ pub fn start_fcitx5_as_user(child_uid: Option<u32>) -> bool {
         (name, dir, g)
     };
 
+    // Preferred: reuse the fcitx5 instance on the user's own session bus.
+    // That is the same instance the desktop (niri/Plasma/…) uses, so both
+    // share input-method state and no second process is needed.
+    if backend != ImeBackend::Isolated {
+        let session_socket = format!("/run/user/{}/bus", uid);
+        let first_try = !SESSION_BUS_TRIED.swap(true, Ordering::Relaxed);
+        if first_try
+            && std::path::Path::new(&session_socket).exists()
+            && std::os::unix::net::UnixStream::connect(&session_socket).is_ok()
+        {
+            let addr = format!("unix:path={}", session_socket);
+            info!(
+                "IME: using the user's session bus ({}), no private fcitx5 needed",
+                addr
+            );
+            std::env::set_var("DBUS_SESSION_BUS_ADDRESS", &addr);
+            return true;
+        }
+        if backend == ImeBackend::Session {
+            warn!(
+                "IME: ime_backend=session, but {} is not usable — IME stays disabled",
+                session_socket
+            );
+            return false;
+        }
+        debug!("IME: session bus not usable, falling back to an isolated fcitx5");
+    }
+
     let xdg_runtime = format!("/run/user/{}", uid);
+    // Private runtime dir for this instance: fcitx5 keeps locks/sockets under
+    // $XDG_RUNTIME_DIR, sharing it with the desktop instance makes the two
+    // fight over them (this used to break the IME inside niri).
+    let ime_runtime = format!("{}/ncon-im", xdg_runtime);
+    let _ = std::fs::create_dir_all(&ime_runtime);
+    if let Ok(c) = std::ffi::CString::new(ime_runtime.as_str()) {
+        unsafe { libc::chown(c.as_ptr(), uid, gid) };
+    }
+    // This instance only serves the D-Bus frontend. Keep it away from the
+    // display (wayland/xcb/xim/ibus), the desktop UI and notifications.
+    const DISABLED_ADDONS: &str = "wayland,waylandim,xcb,xim,ibusfrontend,fcitx4frontend,kimpanel,classicui,notifications,notificationitem,virtualkeyboard,portalsettingmonitor";
+    let locale = detect_system_locale();
 
     // Start a NEW dbus-daemon as the user (not root).
     // Root-owned dbus-daemon rejects fcitx5's RequestName.
@@ -255,22 +330,26 @@ pub fn start_fcitx5_as_user(child_uid: Option<u32>) -> bool {
                 libc::setuid(uid);
             }
             std::env::set_var("HOME", &home);
-            std::env::set_var("XDG_RUNTIME_DIR", &xdg_runtime);
+            std::env::set_var("XDG_RUNTIME_DIR", &ime_runtime);
             std::env::set_var("USER", &username);
             std::env::set_var("DBUS_SESSION_BUS_ADDRESS", &dbus_addr);
-            // Ensure fcitx5 can find addons (Mozc etc.) and load locale
-            std::env::set_var("LANG", "ja_JP.UTF-8");
+            // Use the user's real locale (fcitx5 picks translations and
+            // dictionaries by it); the old hardcoded ja_JP.UTF-8 was wrong for
+            // everyone outside Japan.
+            std::env::set_var("LANG", &locale);
             std::env::set_var("XDG_DATA_DIRS", "/usr/local/share:/usr/share");
             std::env::set_var("XDG_CONFIG_HOME", format!("{}/.config", home));
             // Note: set FCITX_LOG_LEVEL=debug here to troubleshoot addon loading
 
             let _ = std::fs::write(&log_path, ""); // truncate
 
-            // Start dbus-daemon (forks into background), then fcitx5 (also daemonizes).
-            // Shell exits after both have daemonized.
+            // Start dbus-daemon (forks into background), then fcitx5.
+            // NOTE: no `-r`/`--replace` — that would try to take over the
+            // desktop's instance and break its IME.
             let cmd = format!(
-                "dbus-daemon --config-file={} --fork && fcitx5 -rd >>{} 2>&1",
-                config_path, log_path
+                "dbus-daemon --config-file={} --fork && \
+                 exec env XDG_RUNTIME_DIR={} LANG={} fcitx5 -d --disable={} >>{} 2>&1",
+                config_path, ime_runtime, locale, DISABLED_ADDONS, log_path
             );
 
             use std::os::unix::process::CommandExt;
@@ -279,7 +358,7 @@ pub fn start_fcitx5_as_user(child_uid: Option<u32>) -> bool {
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .exec();
-            eprintln!("ncon: exec failed: {}", err);
+            nprint!("ncon: exec failed: {}", err);
             std::process::exit(1);
         }
         child_pid => {
@@ -314,53 +393,63 @@ pub fn start_fcitx5_as_user(child_uid: Option<u32>) -> bool {
     true
 }
 
-/// Ensure fcitx5 profile has a Japanese input method (Mozc) configured.
+/// System default locale (from `/etc/locale.conf`), used for the isolated
+/// fcitx5 instance. Falls back to `C.UTF-8` when unset.
+fn detect_system_locale() -> String {
+    std::fs::read_to_string("/etc/locale.conf")
+        .ok()
+        .and_then(|content| {
+            content.lines().find_map(|line| {
+                line.strip_prefix("LANG=")
+                    .map(|v| v.trim().trim_matches('"').to_string())
+            })
+        })
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "C.UTF-8".to_string())
+}
+
+/// Ensure fcitx5 profile has a usable input method configured (only when the
+/// user does not have a profile yet).
 ///
-/// fcitx5-mozc addon is `OnDemand=True`, so it won't load unless the profile
-/// references it as an active input method. If the profile doesn't exist or
-/// doesn't mention "mozc", create/update it with keyboard + mozc.
+/// fcitx5 engines such as pinyin/rime/mozc are `OnDemand=True`, so they won't
+/// load unless the profile references them as an active input method.
 fn ensure_fcitx5_profile(home: &str, uid: u32, gid: u32) {
     let config_dir = format!("{}/.config/fcitx5", home);
     let profile_path = format!("{}/profile", config_dir);
 
-    // Check if profile already exists
-    if let Ok(content) = std::fs::read_to_string(&profile_path) {
-        if content.contains("mozc") || content.contains("anthy")
-            || content.contains("skk") || content.contains("kkc")
-        {
-            info!("IME: fcitx5 profile already has Japanese IME configured");
+    // Never overwrite an existing profile: users configure their own engines
+    // (pinyin, rime, mozc, …) and clobbering that breaks their setup.
+    if std::path::Path::new(&profile_path).exists() {
+        info!("IME: keeping the existing fcitx5 profile ({})", profile_path);
+        return;
+    }
+    info!("IME: creating a minimal fcitx5 profile");
+
+    // Pick the first installed engine (ordered by how common it is).
+    let candidates = [
+        ("pinyin", "/usr/share/fcitx5/addon/pinyin.conf"),
+        ("rime", "/usr/share/fcitx5/addon/rime.conf"),
+        ("mozc", "/usr/share/fcitx5/addon/mozc.conf"),
+        ("anthy", "/usr/share/fcitx5/addon/anthy.conf"),
+        ("hangul", "/usr/share/fcitx5/addon/hangul.conf"),
+        ("skk", "/usr/share/fcitx5/addon/skk.conf"),
+    ];
+    let ime_name = match candidates
+        .iter()
+        .find(|(_, path)| std::path::Path::new(path).exists())
+    {
+        Some((name, _)) => *name,
+        None => {
+            info!("IME: no input method engine installed, keeping keyboard only");
             return;
         }
-        // Profile exists but no Japanese IME — don't overwrite user config,
-        // but warn so user knows why IME doesn't work
-        warn!(
-            "IME: fcitx5 profile exists but has no Japanese IME. \
-             Run: fcitx5-configtool or add mozc to {}", profile_path
-        );
-        // Fall through to overwrite — user likely has bare default
-    } else {
-        info!("IME: creating fcitx5 profile with Japanese IME");
-    }
-
-    // Detect which Japanese IME addons are available
-    let ime_name = if std::path::Path::new("/usr/share/fcitx5/addon/mozc.conf").exists() {
-        "mozc"
-    } else if std::path::Path::new("/usr/share/fcitx5/addon/anthy.conf").exists() {
-        "anthy"
-    } else if std::path::Path::new("/usr/share/fcitx5/addon/skk.conf").exists() {
-        "skk"
-    } else if std::path::Path::new("/usr/share/fcitx5/addon/kkc.conf").exists() {
-        "kkc"
-    } else {
-        warn!("IME: no Japanese IME addon found (mozc/anthy/skk/kkc)");
-        return;
     };
 
     let profile = format!(
         "[Groups/0]\n\
          Name=Default\n\
          Default Layout=us\n\
-         DefaultIM=keyboard-us\n\
+         DefaultIM={ime}\n\
          \n\
          [Groups/0/Items/0]\n\
          Name=keyboard-us\n\

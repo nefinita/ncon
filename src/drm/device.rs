@@ -89,7 +89,7 @@ pub fn setup_panic_hook() {
             unsafe { libc::ioctl(fd, VT_SETMODE, &mode) };
         }
         // Print panic info to stderr so it's visible on the restored console
-        eprintln!("[ncon] PANIC: {}", info);
+        nprint!("[ncon] PANIC: {}", info);
         prev(info);
     }));
 }

@@ -61,7 +61,7 @@ pub fn peak_rss_mb() -> f64 {
 
 /// Print live/peak heap usage with a label.
 pub fn snapshot(label: &str) {
-    eprintln!(
+    nprint!(
         "[mem] {:<44} heap_live={:9.1} MB  heap_peak={:9.1} MB  rss={:8.1} MB  rss_peak={:8.1} MB",
         label,
         live_mb(),

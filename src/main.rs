@@ -14,6 +14,32 @@
 //! └──────────────────────────────────────────┘
 //! ```
 
+/// Non-panicking stderr print: writing to a closed pipe (e.g. `ncon --test | head`)
+/// must not abort the process — release builds use `panic = "abort"`, so a
+/// failed `eprintln!` used to turn into SIGABRT/coredump.
+macro_rules! nprint {
+    () => {{
+        use std::io::Write as _;
+        let _ = writeln!(std::io::stderr());
+    }};
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    }};
+}
+
+/// Non-panicking stdout print (same reasoning as [`nprint!`]).
+macro_rules! nprintln {
+    () => {{
+        use std::io::Write as _;
+        let _ = writeln!(std::io::stdout());
+    }};
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = writeln!(std::io::stdout(), $($arg)*);
+    }};
+}
+
 mod config;
 mod constants;
 mod drawing;
@@ -836,7 +862,7 @@ fn load_test_font() -> Result<&'static [u8]> {
     if let Ok(path) = std::env::var("NCON_FONT") {
         let data = font::loader::load_font_static(std::path::Path::new(&path))
             .with_context(|| format!("Cannot read font specified by NCON_FONT: {}", path))?;
-        eprintln!("Font: {} (NCON_FONT)", path);
+        nprint!("Font: {} (NCON_FONT)", path);
         return Ok(data);
     }
 
@@ -852,13 +878,13 @@ fn load_test_font() -> Result<&'static [u8]> {
 
     for path in &ligature_fonts {
         if let Ok(data) = font::loader::load_font_static(std::path::Path::new(path)) {
-            eprintln!("Font: {} (ligature-capable)", path);
+            nprint!("Font: {} (ligature-capable)", path);
             return Ok(data);
         }
     }
 
     // Fallback: system font
-    eprintln!("Ligature font not found - falling back to system font");
+    nprint!("Ligature font not found - falling back to system font");
     Ok(Box::leak(
         font::atlas::load_system_font()?.into_boxed_slice(),
     ))
@@ -866,7 +892,7 @@ fn load_test_font() -> Result<&'static [u8]> {
 
 /// Print help message
 fn print_help() {
-    println!(
+    nprintln!(
         r#"ncon {} - GPU-accelerated terminal emulator for Linux console
 
 USAGE:
@@ -928,7 +954,7 @@ For more information, see: https://github.com/nefinita/ncon
 
 /// Shaper test mode: verify text shaping without GPU
 fn test_shaper_mode() -> Result<()> {
-    eprintln!("=== Text Shaper Test ===\n");
+    nprint!("=== Text Shaper Test ===\n");
     #[cfg(feature = "mem-debug")]
     mem_track::snapshot("start");
 
@@ -941,19 +967,19 @@ fn test_shaper_mode() -> Result<()> {
     #[cfg(feature = "mem-debug")]
     mem_track::snapshot("after cjk font read+leak");
 
-    eprintln!("Font loaded");
+    nprint!("Font loaded");
 
     // Create shaper (rustybuzz; zero-copy glyph lookups)
     let mut shaper = match font::shaper::TextShaper::new(font_data, cjk_font_data) {
         Some(s) => s,
         None => {
-            eprintln!("Failed to create shaper");
+            nprint!("Failed to create shaper");
             return Ok(());
         }
     };
     #[cfg(feature = "mem-debug")]
     mem_track::snapshot("after TextShaper::new");
-    eprintln!("Shaper initialized\n");
+    nprint!("Shaper initialized\n");
 
     // Test strings
     let test_strings = [
@@ -987,8 +1013,8 @@ fn test_shaper_mode() -> Result<()> {
         // Execute shaping
         let shaped = shaper.shape_line(&grid, 0);
 
-        eprintln!("Input: \"{}\"", test);
-        eprintln!("  Shaping result ({} glyphs):", shaped.len());
+        nprint!("Input: \"{}\"", test);
+        nprint!("  Shaping result ({} glyphs):", shaped.len());
 
         let mut has_ligature = false;
         let mut has_calt = false;
@@ -1008,7 +1034,7 @@ fn test_shaper_mode() -> Result<()> {
             } else {
                 ""
             };
-            eprintln!(
+            nprint!(
                 "    col={:<3} glyph_id={:<5} (default={:<5}) span={} ch='{}'{}",
                 col, sg.key.glyph_id, default_gid, sg.cell_span, sg.ch, marker
             );
@@ -1021,14 +1047,14 @@ fn test_shaper_mode() -> Result<()> {
             } else {
                 "calt context substitution"
             };
-            eprintln!("  => Shaping effect detected ({})", kind);
+            nprint!("  => Shaping effect detected ({})", kind);
         } else {
-            eprintln!("  (No shaping effect)");
+            nprint!("  (No shaping effect)");
         }
-        eprintln!();
+        nprint!();
     }
 
-    eprintln!("=== Test complete ===");
+    nprint!("=== Test complete ===");
     Ok(())
 }
 
@@ -1211,7 +1237,7 @@ fn main() -> Result<()> {
 
     // --version
     if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("ncon {}", env!("CARGO_PKG_VERSION"));
+        nprintln!("ncon {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
 
@@ -1221,7 +1247,7 @@ fn main() -> Result<()> {
 
     if test_mode {
         info!("Test mode: skipping DRM initialization");
-        eprintln!("[OK] ncon build verification complete");
+        nprint!("[OK] ncon build verification complete");
         return Ok(());
     }
 
@@ -1287,7 +1313,7 @@ fn main() -> Result<()> {
         // Check if config file already exists at the resolved target path.
         if let Ok(config_path) = config::Config::path_for_target(&target) {
             if config_path.exists() && !force {
-                println!("Config file already exists: {}", config_path.display());
+                nprintln!("Config file already exists: {}", config_path.display());
                 print!("Overwrite? [y/N]: ");
                 std::io::Write::flush(&mut std::io::stdout())?;
 
@@ -1296,7 +1322,7 @@ fn main() -> Result<()> {
                 let input = input.trim().to_lowercase();
 
                 if input != "y" && input != "yes" {
-                    println!("Aborted.");
+                    nprintln!("Aborted.");
                     return Ok(());
                 }
             }
@@ -1306,40 +1332,40 @@ fn main() -> Result<()> {
         let nerd_font_found = config::detect_nerd_font_path().is_some();
 
         if !nerd_font_found {
-            println!("Tip: For icon display (yazi, lsd, etc.), install Nerd Font first:");
-            println!();
-            println!("  sudo apt install fontconfig curl  # if not installed");
-            println!("  mkdir -p ~/.local/share/fonts");
-            println!("  cd ~/.local/share/fonts");
-            println!("  curl -OL https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Hack.tar.xz");
-            println!("  tar xf Hack.tar.xz && rm Hack.tar.xz");
-            println!("  fc-cache -fv");
-            println!();
-            println!("Then re-run --init-config to auto-detect the font.");
-            println!();
+            nprintln!("Tip: For icon display (yazi, lsd, etc.), install Nerd Font first:");
+            nprintln!();
+            nprintln!("  sudo apt install fontconfig curl  # if not installed");
+            nprintln!("  mkdir -p ~/.local/share/fonts");
+            nprintln!("  cd ~/.local/share/fonts");
+            nprintln!("  curl -OL https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Hack.tar.xz");
+            nprintln!("  tar xf Hack.tar.xz && rm Hack.tar.xz");
+            nprintln!("  fc-cache -fv");
+            nprintln!();
+            nprintln!("Then re-run --init-config to auto-detect the font.");
+            nprintln!();
         }
 
         match config::Config::write_config_with_preset(&target, &preset_strs) {
             Ok(path) => {
-                println!("Config file generated:");
-                println!("  Target:  {target_display}");
-                println!("  Presets: {preset_display}");
-                println!("  Path:    {}", path.display());
+                nprintln!("Config file generated:");
+                nprintln!("  Target:  {target_display}");
+                nprintln!("  Presets: {preset_display}");
+                nprintln!("  Path:    {}", path.display());
                 if nerd_font_found {
-                    println!("  Nerd Font: detected (symbols configured)");
+                    nprintln!("  Nerd Font: detected (symbols configured)");
                 }
-                println!();
-                println!("Usage forms (first comma-token decides target):");
-                println!("  sudo ncon --init-config=system           -> /etc/ncon/config.toml");
-                println!("  ncon --init-config=user,vim,jp           -> ~/.config/ncon/config.toml + vim + japanese");
-                println!("  ncon --init-config=/tmp/x.toml,vim       -> /tmp/x.toml + vim (load via NCON_CONFIG)");
-                println!("  ncon --init-config=~/foo.toml,vim        -> $HOME/foo.toml + vim (load via NCON_CONFIG)");
-                println!();
-                println!("Available presets: default, vim, emacs, japanese (alias: jp)");
+                nprintln!();
+                nprintln!("Usage forms (first comma-token decides target):");
+                nprintln!("  sudo ncon --init-config=system           -> /etc/ncon/config.toml");
+                nprintln!("  ncon --init-config=user,vim,jp           -> ~/.config/ncon/config.toml + vim + japanese");
+                nprintln!("  ncon --init-config=/tmp/x.toml,vim       -> /tmp/x.toml + vim (load via NCON_CONFIG)");
+                nprintln!("  ncon --init-config=~/foo.toml,vim        -> $HOME/foo.toml + vim (load via NCON_CONFIG)");
+                nprintln!();
+                nprintln!("Available presets: default, vim, emacs, japanese (alias: jp)");
                 return Ok(());
             }
             Err(e) => {
-                eprintln!("Failed to generate config: {}", e);
+                nprint!("Failed to generate config: {}", e);
                 return Err(e);
             }
         }
@@ -2504,8 +2530,8 @@ Make sure seatd/logind is running and you're on an active VT."
             // If DRM master was never acquired, check for timeout.
             // This prevents indefinite freeze when running without proper privileges.
             if !drm_master_ever_held && drm_master_wait_start.elapsed() > Duration::from_secs(5) {
-                eprintln!("[ncon] ERROR: Cannot acquire DRM master (Permission denied).");
-                eprintln!(
+                nprint!("[ncon] ERROR: Cannot acquire DRM master (Permission denied).");
+                nprint!(
                     "[ncon] Either run as root (sudo) or use --backend=seatd with logind/seatd."
                 );
                 return Err(anyhow!(
@@ -3677,8 +3703,10 @@ Make sure seatd/logind is running and you're on an active VT."
                         ime_retry_at = None;
                         continue;
                     }
-                    fcitx5_launched =
-                        input::ime::start_fcitx5_as_user(term.logged_in_uid());
+                    fcitx5_launched = input::ime::start_fcitx5_as_user(
+                        term.logged_in_uid(),
+                        input::ime::ImeBackend::from_config(&cfg.terminal.ime_backend),
+                    );
                     if !fcitx5_launched {
                         // User not yet logged in — retry later
                         ime_retry_at =

@@ -130,7 +130,7 @@ impl Pty {
                 match nix::unistd::execvp(&shell_cstr, &[&argv0]) {
                     Ok(infallible) => match infallible {},
                     Err(e) => {
-                        eprintln!("ncon: failed to spawn shell: {}", e);
+                        nprint!("ncon: failed to spawn shell: {}", e);
                         std::process::exit(1);
                     }
                 }
@@ -213,7 +213,7 @@ impl Pty {
                     match nix::unistd::execvp(&login, &[&argv0]) {
                         Ok(infallible) => match infallible {},
                         Err(e) => {
-                            eprintln!("ncon: failed to exec /bin/login: {}", e);
+                            nprint!("ncon: failed to exec /bin/login: {}", e);
                             std::process::exit(1);
                         }
                     }
@@ -223,7 +223,7 @@ impl Pty {
                     let shell_cstr = match std::ffi::CString::new(shell.as_str()) {
                         Ok(s) => s,
                         Err(_) => {
-                            eprintln!("ncon: invalid shell path (contains NUL byte)");
+                            nprint!("ncon: invalid shell path (contains NUL byte)");
                             std::process::exit(1);
                         }
                     };
@@ -236,7 +236,7 @@ impl Pty {
                     let argv0 = match std::ffi::CString::new(shell_name) {
                         Ok(s) => s,
                         Err(_) => {
-                            eprintln!("ncon: invalid shell name (contains NUL byte)");
+                            nprint!("ncon: invalid shell name (contains NUL byte)");
                             std::process::exit(1);
                         }
                     };
@@ -244,7 +244,7 @@ impl Pty {
                     match nix::unistd::execvp(&shell_cstr, &[&argv0]) {
                         Ok(infallible) => match infallible {},
                         Err(e) => {
-                            eprintln!("ncon: failed to spawn shell: {}", e);
+                            nprint!("ncon: failed to spawn shell: {}", e);
                             std::process::exit(1);
                         }
                     }

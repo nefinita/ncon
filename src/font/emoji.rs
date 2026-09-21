@@ -1472,7 +1472,7 @@ mod tests {
     fn cdt_bitmaps_decode_lazily() {
         let path = "/usr/share/fonts/noto/NotoColorEmoji.ttf";
         if !std::path::Path::new(path).exists() {
-            eprintln!("skipping: {path} not installed");
+            nprint!("skipping: {path} not installed");
             return;
         }
 

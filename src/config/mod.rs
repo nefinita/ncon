@@ -181,6 +181,12 @@ pub struct TerminalConfig {
     /// Enable fcitx5 IME (Japanese input)
     /// When true, ncon will auto-start D-Bus session and fcitx5 if needed
     pub ime: bool,
+    /// Which fcitx5 instance to use:
+    /// "auto"     — reuse the desktop session's instance when reachable,
+    ///              otherwise start a private, isolated one (default)
+    /// "session"  — only use the desktop session's instance
+    /// "isolated" — always start a private, isolated instance
+    pub ime_backend: String,
     /// List of apps that auto-disable IME
     /// When foreground process name is in this list, IME is automatically disabled
     pub ime_disabled_apps: Vec<String>,
@@ -608,6 +614,7 @@ impl Default for TerminalConfig {
             bell: "visual".to_string(),
             term_env: "xterm-256color".to_string(),
             ime: false,
+            ime_backend: "auto".to_string(),
             // Empty by default - uncomment in config for CJK/IME users
             ime_disabled_apps: vec![],
         }
