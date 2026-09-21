@@ -885,7 +885,7 @@ fn load_test_font() -> Result<&'static [u8]> {
 
     // Fallback: system font
     nprint!("Ligature font not found - falling back to system font");
-    font::atlas::load_system_font()
+    font::loader::load_system_font()
 }
 
 /// Print help message
@@ -960,7 +960,7 @@ fn test_shaper_mode() -> Result<()> {
     let font_data: &'static [u8] = load_test_font().context("Failed to load font")?;
     #[cfg(feature = "mem-debug")]
     mem_track::snapshot("after main font read+leak");
-    let cjk_font_data: Option<&'static [u8]> = font::atlas::load_cjk_font();
+    let cjk_font_data: Option<&'static [u8]> = font::loader::load_cjk_font();
     #[cfg(feature = "mem-debug")]
     mem_track::snapshot("after cjk font read+leak");
 
@@ -1717,11 +1717,11 @@ Make sure seatd/logind is running and you're on an active VT."
                     "Font \"{}\" not found ({}), falling back to system monospace",
                     cfg.font.main, e
                 );
-                font::atlas::load_system_font().context("Failed to load fallback font")?
+                font::loader::load_system_font().context("Failed to load fallback font")?
             }
         }
     } else {
-        font::atlas::load_system_font().context("Failed to load font")?
+        font::loader::load_system_font().context("Failed to load font")?
     };
 
     // Apply display scale factor to font size
@@ -1751,7 +1751,7 @@ Make sure seatd/logind is running and you're on an active VT."
             }
         }
     } else {
-        font::atlas::load_cjk_font()
+        font::loader::load_cjk_font()
     };
 
     // Load symbols/Nerd Font (supports file paths and font names, continue on failure)

@@ -9,7 +9,6 @@ pub mod context;
 pub mod emoji_renderer;
 pub mod fbo;
 pub mod image_renderer;
-pub mod lcd_renderer;
 pub mod lcd_renderer_instanced;
 pub mod renderer;
 pub mod shader;
@@ -19,8 +18,6 @@ pub use context::{EglContext, GbmDevice, GbmSurface, GlRenderer};
 pub use emoji_renderer::EmojiRenderer;
 pub use fbo::Fbo;
 pub use image_renderer::{image_key, ImageRenderer};
-#[allow(unused_imports)]
-pub use lcd_renderer::LcdTextRenderer;
 #[allow(unused_imports)]
 pub use lcd_renderer_instanced::LcdTextRendererInstanced;
 pub use renderer::CurlyRenderer;

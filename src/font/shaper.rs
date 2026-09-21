@@ -6,7 +6,7 @@
 //! Since terminals use fixed-width grids, shaping only affects
 //! **glyph selection** (positions are fixed to cell grid).
 
-use crate::font::atlas::GlyphKey;
+use crate::font::lcd_atlas::GlyphKey;
 use crate::terminal::grid::Grid;
 use log::debug;
 use std::str::FromStr;

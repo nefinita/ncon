@@ -8,7 +8,6 @@
 //! - Color emoji support (CBDT/CBLC)
 //! - LCD subpixel rendering (freetype)
 
-pub mod atlas;
 pub mod emoji;
 pub mod fontconfig;
 pub mod freetype;

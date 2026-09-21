@@ -41,3 +41,30 @@ pub fn load_font_static(path: &Path) -> std::io::Result<&'static [u8]> {
 pub fn mapped_font_count() -> usize {
     FONT_CACHE.lock().unwrap().len()
 }
+
+/// Load the system monospace font (mmap'd and shared).
+///
+/// Honours the `NCON_FONT` environment variable, then falls back to
+/// fontconfig's best monospace match.
+pub fn load_system_font() -> anyhow::Result<&'static [u8]> {
+    if let Ok(path) = std::env::var("NCON_FONT") {
+        let data = load_font_static(std::path::Path::new(&path))?;
+        log::info!("Font loaded: {} (NCON_FONT)", path);
+        return Ok(data);
+    }
+
+    let path = super::fontconfig::system_font_path()?;
+    load_font_static(&path).map_err(|e| anyhow::anyhow!("Failed to map font {}: {}", path.display(), e))
+}
+
+/// Load a system CJK font (mmap'd and shared).
+pub fn load_cjk_font() -> Option<&'static [u8]> {
+    let path = super::fontconfig::cjk_font_path()?;
+    match load_font_static(&path) {
+        Ok(data) => Some(data),
+        Err(e) => {
+            log::warn!("Failed to map CJK font {}: {}", path.display(), e);
+            None
+        }
+    }
+}
