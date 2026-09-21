@@ -644,18 +644,19 @@ impl GlyphAtlas {
 /// Search order:
 /// 1. NCON_FONT environment variable (file path)
 /// 2. fontconfig (automatic best-match selection)
-pub fn load_system_font() -> Result<Vec<u8>> {
+pub fn load_system_font() -> Result<&'static [u8]> {
     // Custom font can be specified via NCON_FONT environment variable
     if let Ok(path) = std::env::var("NCON_FONT") {
-        let data = std::fs::read(&path)
+        let data = super::loader::load_font_static(std::path::Path::new(&path))
             .map_err(|e| anyhow!("Failed to load NCON_FONT: {} ({})", path, e))?;
         info!("Font loaded: {} (NCON_FONT)", path);
         return Ok(data);
     }
 
-    // Use fontconfig to find the best monospace font
-    if let Ok(data) = super::fontconfig::load_system_font_fc() {
-        return Ok(data);
+    // Use fontconfig to find the best monospace font (mmap, no copy)
+    if let Ok(path) = super::fontconfig::system_font_path() {
+        return super::loader::load_font_static(&path)
+            .map_err(|e| anyhow!("Failed to map font {}: {}", path.display(), e));
     }
 
     Err(anyhow!(
@@ -664,11 +665,14 @@ pub fn load_system_font() -> Result<Vec<u8>> {
 }
 
 /// Search and load CJK font via fontconfig
-pub fn load_cjk_font() -> Option<Vec<u8>> {
-    if let Some(data) = super::fontconfig::load_cjk_font_fc() {
-        return Some(data);
+pub fn load_cjk_font() -> Option<&'static [u8]> {
+    if let Some(path) = super::fontconfig::cjk_font_path() {
+        match super::loader::load_font_static(&path) {
+            Ok(data) => return Some(data),
+            Err(e) => warn!("Failed to map CJK font {}: {}", path.display(), e),
+        }
     }
 
-    warn!("CJK font not found. Install a CJK font (e.g. fonts-noto-cjk) for Japanese display.");
+    warn!("CJK font not found. Install a CJK font (e.g. fonts-noto-cjk) for CJK display.");
     None
 }

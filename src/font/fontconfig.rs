@@ -205,7 +205,8 @@ pub fn resolve_font_path(specifier: &str) -> Result<PathBuf> {
     ))
 }
 
-/// Search and load system font using fontconfig
+/// Search and load system font using fontconfig (kept for API completeness)
+#[allow(dead_code)]
 pub fn load_system_font_fc() -> Result<Vec<u8>> {
     let finder = FontFinder::new()?;
 
@@ -221,7 +222,34 @@ pub fn load_system_font_fc() -> Result<Vec<u8>> {
     Err(anyhow!("Monospace font not found via fontconfig"))
 }
 
-/// Search and load CJK font using fontconfig
+/// Find the system monospace font path (no file read, no copy).
+pub fn system_font_path() -> Result<PathBuf> {
+    let finder = FontFinder::new()?;
+    if let Some(font_match) = finder.find_monospace() {
+        info!(
+            "System font (fontconfig): {} ({})",
+            font_match.family,
+            font_match.path.display()
+        );
+        return Ok(font_match.path);
+    }
+    Err(anyhow!("Monospace font not found via fontconfig"))
+}
+
+/// Find a CJK font path (no file read, no copy).
+pub fn cjk_font_path() -> Option<PathBuf> {
+    let finder = FontFinder::new().ok()?;
+    let m = finder.find_cjk()?;
+    info!(
+        "CJK font (fontconfig): {} ({})",
+        m.family,
+        m.path.display()
+    );
+    Some(m.path)
+}
+
+/// Search and load CJK font using fontconfig (kept for API completeness)
+#[allow(dead_code)]
 pub fn load_cjk_font_fc() -> Option<Vec<u8>> {
     let finder = match FontFinder::new() {
         Ok(f) => f,

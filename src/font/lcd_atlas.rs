@@ -134,10 +134,10 @@ impl LcdGlyphAtlas {
     /// subpixel_positioning: Enable 1/3 pixel phase rendering
     pub fn new(
         gl: &glow::Context,
-        font_data: &[u8],
+        font_data: &'static [u8],
         font_size: u32,
-        symbols_font_data: Option<&[u8]>,
-        cjk_font_data: Option<&[u8]>,
+        symbols_font_data: Option<&'static [u8]>,
+        cjk_font_data: Option<&'static [u8]>,
         lcd_mode: LcdMode,
         lcd_filter: LcdFilterMode,
         lcd_weights: Option<[u8; 5]>,
@@ -435,9 +435,10 @@ impl LcdGlyphAtlas {
             return None;
         }
 
-        let font_data = std::fs::read(&path).ok()?;
+        // mmap (and de-duplicate) the fallback font so it stays file-backed
+        let font_data = crate::font::loader::load_font_static(&path).ok()?;
         let font = FtFont::from_bytes(
-            &font_data,
+            font_data,
             self.font_size,
             self.lcd_mode,
             self.lcd_filter,

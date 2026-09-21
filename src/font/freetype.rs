@@ -10,7 +10,6 @@ use freetype::ffi::FT_Library;
 use freetype::render_mode::RenderMode;
 use freetype::{LcdFilter, Library};
 use log::info;
-use std::rc::Rc;
 use std::sync::Arc;
 
 // Directly declare functions not exported by freetype-sys
@@ -266,7 +265,8 @@ pub struct StyleOptions {
 #[allow(dead_code)]
 pub struct FtFont {
     library: Arc<Library>,
-    face: freetype::Face,
+    /// Face borrowing the (mmap'd, leaked) font bytes — no copy is made.
+    face: freetype::Face<&'static [u8]>,
     /// Current font size (pixels)
     size_px: u32,
     /// LCD rendering mode
@@ -278,8 +278,12 @@ pub struct FtFont {
 #[allow(dead_code)]
 impl FtFont {
     /// Load from font data
+    ///
+    /// The bytes must live for the whole process (`'static`): they are borrowed
+    /// by FreeType, not copied. `font::loader::load_font_static` hands out
+    /// memory-mapped slices.
     pub fn from_bytes(
-        data: &[u8],
+        data: &'static [u8],
         size_px: u32,
         lcd_mode: LcdMode,
         lcd_filter: LcdFilterMode,
@@ -309,11 +313,10 @@ impl FtFont {
             }
         }
 
-        // freetype-rs requires Rc<Vec<u8>>
-        let font_data: Rc<Vec<u8>> = Rc::new(data.to_vec());
-
+        // Borrow the caller's (memory-mapped) bytes instead of copying them:
+        // `new_memory_face` would clone the whole file into an Rc<Vec<u8>>.
         let face = library
-            .new_memory_face(font_data, 0)
+            .new_memory_face2(data, 0)
             .map_err(|e| anyhow!("FreeType font loading failed: {:?}", e))?;
 
         // Set pixel size
