@@ -1815,6 +1815,8 @@ Make sure seatd/logind is running and you're on an active VT."
         cfg.font.lcd_weights,
         cfg.font.lcd_subpixel_positioning,
         hinting_mode,
+        font::lcd_atlas::ItalicMode::from_config(&cfg.font.italic_mode),
+        cfg.font.italic_shear,
     )
     .context("Failed to create LCD glyph atlas")?;
     #[cfg(feature = "mem-debug")]

@@ -67,6 +67,14 @@ pub struct FontConfig {
     /// LCD mode provides high-quality subpixel rendering,
     /// but is not suitable for rotated/scaled displays
     pub render_mode: String,
+    /// Italic handling when the font has no real italic face:
+    /// "auto"      — synthetically slant narrow glyphs, keep CJK upright (default)
+    /// "synthetic" — slant everything
+    /// "off"       — never slant
+    pub italic_mode: String,
+    /// Shear amount for synthetic italics (tan of the slant angle).
+    /// Lower values overlap neighbouring cells less; 0 disables the slant.
+    pub italic_shear: f32,
     /// LCD filter: "none" | "default" | "light" | "legacy" | "custom"
     /// Adjusts sharpness vs fringe tradeoff
     pub lcd_filter: String,
@@ -458,6 +466,8 @@ impl Default for FontConfig {
             emoji: String::new(),
             size: 16.0,
             render_mode: "lcd".to_string(), // LCD subpixel rendering (high quality)
+            italic_mode: "auto".to_string(),
+            italic_shear: 0.16,
             lcd_filter: "default".to_string(), // Sharp (less blur than light)
             lcd_weights: None,
             lcd_subpixel: "rgb".to_string(),  // For common panels
@@ -1266,6 +1276,9 @@ ime_disabled_apps = ["vim", "nvim", "vi", "vimdiff", "emacs", "nano", "less", "m
 #
 # [font]
 # render_mode = "lcd"           # "lcd" (high quality) or "grayscale"
+# italic_mode = "auto"          # "auto" (slant narrow glyphs, CJK upright),
+#                               # "synthetic" (slant everything) or "off"
+# italic_shear = 0.16           # Synthetic italic shear (0.0 - 0.25)
 # lcd_filter = "default"        # Sharp (less blurry than light)
 # lcd_subpixel = "rgb"          # Adjust to match your panel
 # lcd_gamma = 1.15              # Thinner/tighter appearance (1.0-1.25)

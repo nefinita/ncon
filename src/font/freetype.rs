@@ -247,6 +247,21 @@ pub struct FtGlyph {
     pub advance: f32,
 }
 
+/// Options for styled (bold / italic) rasterization.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StyleOptions {
+    /// Apply synthetic bold (FT_GlyphSlot_Embolden)
+    pub bold: bool,
+    /// Apply synthetic italic (shear transform)
+    pub italic: bool,
+    /// Shear amount for synthetic italics (tan of the slant angle)
+    pub shear: f32,
+    /// Render with grayscale AA instead of LCD subpixel: sheared stems land on
+    /// fractional pixel positions and LCD filtering turns them into coloured
+    /// "ghost" strokes.
+    pub grayscale: bool,
+}
+
 /// FreeType font
 #[allow(dead_code)]
 pub struct FtFont {
@@ -689,46 +704,31 @@ impl FtFont {
 
     /// Rasterize with synthetic bold (FT_GlyphSlot_Embolden)
     pub fn rasterize_bold(&self, ch: char) -> Option<FtGlyph> {
-        self.rasterize_styled(ch, true, false)
+        self.rasterize_styled(
+            ch,
+            StyleOptions {
+                bold: true,
+                ..Default::default()
+            },
+        )
     }
 
     /// Rasterize bold with subpixel phase
     pub fn rasterize_bold_with_phase(&mut self, ch: char, phase: SubpixelPhase) -> Option<FtGlyph> {
-        self.rasterize_styled_with_phase(ch, phase, true, false)
-    }
-
-    /// Rasterize with synthetic italic (shear transform, tan(12°) ≈ 0.21)
-    pub fn rasterize_italic(&mut self, ch: char) -> Option<FtGlyph> {
-        self.rasterize_styled(ch, false, true)
-    }
-
-    /// Rasterize italic with subpixel phase
-    pub fn rasterize_italic_with_phase(
-        &mut self,
-        ch: char,
-        phase: SubpixelPhase,
-    ) -> Option<FtGlyph> {
-        self.rasterize_styled_with_phase(ch, phase, false, true)
-    }
-
-    /// Rasterize with synthetic bold + italic
-    pub fn rasterize_bold_italic(&mut self, ch: char) -> Option<FtGlyph> {
-        self.rasterize_styled(ch, true, true)
-    }
-
-    /// Rasterize bold+italic with subpixel phase
-    pub fn rasterize_bold_italic_with_phase(
-        &mut self,
-        ch: char,
-        phase: SubpixelPhase,
-    ) -> Option<FtGlyph> {
-        self.rasterize_styled_with_phase(ch, phase, true, true)
+        self.rasterize_styled_with_phase(
+            ch,
+            phase,
+            StyleOptions {
+                bold: true,
+                ..Default::default()
+            },
+        )
     }
 
     /// Internal: rasterize with optional bold/italic transforms
     /// Note: uses same &self as rasterize()/load_char() — FreeType's C API mutates face
     /// state through const-appearing pointers (same pattern as freetype-rs's load_char)
-    pub fn rasterize_styled(&self, ch: char, bold: bool, italic: bool) -> Option<FtGlyph> {
+    pub fn rasterize_styled(&self, ch: char, opts: StyleOptions) -> Option<FtGlyph> {
         let glyph_index = self.face.get_char_index(ch as usize);
         if glyph_index.is_none() || glyph_index == Some(0) {
             return None;
@@ -738,23 +738,32 @@ impl FtFont {
         let face_ptr =
             self.face.raw() as *const freetype::ffi::FT_FaceRec as *mut freetype::ffi::FT_FaceRec;
 
-        // Apply italic shear matrix if needed (must be set before load_char)
-        if italic {
-            // tan(12°) ≈ 0.2126, use 0x3646 in 16.16 fixed-point
+        // Apply italic shear matrix if needed (must be set before load_char).
+        // The shear pivots at the baseline origin, so the top of the glyph
+        // leans right; shift it left by half of that overhang so the slanted
+        // glyph stays inside its cell.
+        if opts.italic && opts.shear > 0.0 {
             let matrix = freetype::ffi::FT_Matrix {
-                xx: 0x10000, // 1.0
-                xy: 0x3646,  // tan(12°) ≈ 0.2126
+                xx: 0x10000,
+                xy: (opts.shear * 65536.0) as freetype::ffi::FT_Fixed,
                 yx: 0,
-                yy: 0x10000, // 1.0
+                yy: 0x10000,
             };
+            let ascent = self
+                .face
+                .size_metrics()
+                .map(|m| (m.ascender >> 6) as f32)
+                .unwrap_or(0.0);
+            let shift = -(opts.shear * ascent * 0.5 * 64.0) as freetype::ffi::FT_Pos;
+            let delta = freetype::ffi::FT_Vector { x: shift, y: 0 };
             unsafe {
-                FT_Set_Transform(face_ptr, &matrix, std::ptr::null());
+                FT_Set_Transform(face_ptr, &matrix, &delta);
             }
         }
 
         let load_flags = LoadFlag::DEFAULT | self.hinting_mode.to_load_flag();
         if self.face.load_char(ch as usize, load_flags).is_err() {
-            if italic {
+            if opts.italic {
                 unsafe {
                     FT_Set_Transform(face_ptr, std::ptr::null(), std::ptr::null());
                 }
@@ -763,7 +772,7 @@ impl FtFont {
         }
 
         // Apply embolden after loading but before rendering
-        if bold {
+        if opts.bold {
             unsafe {
                 let glyph_slot = (*face_ptr).glyph;
                 FT_GlyphSlot_Embolden(glyph_slot);
@@ -771,14 +780,21 @@ impl FtFont {
         }
 
         let glyph = self.face.glyph();
-        let render_mode = match self.lcd_mode {
-            LcdMode::Grayscale => RenderMode::Normal,
-            LcdMode::LcdHorizontal => RenderMode::Lcd,
-            LcdMode::LcdVertical => RenderMode::LcdV,
+        // Synthetic italics deliberately use grayscale AA: sheared stems land
+        // on fractional pixel positions and LCD filtering would turn them into
+        // coloured ghost strokes.
+        let render_mode = if opts.grayscale {
+            RenderMode::Normal
+        } else {
+            match self.lcd_mode {
+                LcdMode::Grayscale => RenderMode::Normal,
+                LcdMode::LcdHorizontal => RenderMode::Lcd,
+                LcdMode::LcdVertical => RenderMode::LcdV,
+            }
         };
 
         if glyph.render_glyph(render_mode).is_err() {
-            if italic {
+            if opts.italic {
                 unsafe {
                     FT_Set_Transform(face_ptr, std::ptr::null(), std::ptr::null());
                 }
@@ -786,10 +802,14 @@ impl FtFont {
             return None;
         }
 
-        let result = self.extract_glyph_data(&glyph);
+        let result = if opts.grayscale && !matches!(self.lcd_mode, LcdMode::Grayscale) {
+            self.extract_gray_as_rgb(&glyph)
+        } else {
+            self.extract_glyph_data(&glyph)
+        };
 
         // Reset transform
-        if italic {
+        if opts.italic {
             unsafe {
                 FT_Set_Transform(face_ptr, std::ptr::null(), std::ptr::null());
             }
@@ -799,12 +819,11 @@ impl FtFont {
     }
 
     /// Internal: rasterize with phase + optional bold/italic
-    fn rasterize_styled_with_phase(
+    pub fn rasterize_styled_with_phase(
         &mut self,
         ch: char,
         phase: SubpixelPhase,
-        bold: bool,
-        italic: bool,
+        opts: StyleOptions,
     ) -> Option<FtGlyph> {
         let glyph_index = self.face.get_char_index(ch as usize);
         if glyph_index.is_none() || glyph_index == Some(0) {
@@ -817,12 +836,22 @@ impl FtFont {
             y: 0,
         };
 
-        if italic {
+        if opts.italic && opts.shear > 0.0 {
             let matrix = freetype::ffi::FT_Matrix {
                 xx: 0x10000,
-                xy: 0x3646, // tan(12°)
+                xy: (opts.shear * 65536.0) as freetype::ffi::FT_Fixed,
                 yx: 0,
                 yy: 0x10000,
+            };
+            let ascent = self
+                .face
+                .size_metrics()
+                .map(|m| (m.ascender >> 6) as f32)
+                .unwrap_or(0.0);
+            let shear_shift = -(opts.shear * ascent * 0.5 * 64.0) as freetype::ffi::FT_Pos;
+            let delta = freetype::ffi::FT_Vector {
+                x: delta.x + shear_shift,
+                y: 0,
             };
             unsafe {
                 FT_Set_Transform(self.face.raw_mut() as *mut _, &matrix, &delta);
@@ -845,17 +874,22 @@ impl FtFont {
             return None;
         }
 
-        if bold {
+        if opts.bold {
             unsafe {
                 FT_GlyphSlot_Embolden((*self.face.raw()).glyph);
             }
         }
 
         let glyph = self.face.glyph();
-        let render_mode = match self.lcd_mode {
-            LcdMode::Grayscale => RenderMode::Normal,
-            LcdMode::LcdHorizontal => RenderMode::Lcd,
-            LcdMode::LcdVertical => RenderMode::LcdV,
+        // See rasterize_styled: synthetic italics use grayscale AA.
+        let render_mode = if opts.grayscale {
+            RenderMode::Normal
+        } else {
+            match self.lcd_mode {
+                LcdMode::Grayscale => RenderMode::Normal,
+                LcdMode::LcdHorizontal => RenderMode::Lcd,
+                LcdMode::LcdVertical => RenderMode::LcdV,
+            }
         };
 
         if glyph.render_glyph(render_mode).is_err() {
@@ -869,7 +903,11 @@ impl FtFont {
             return None;
         }
 
-        let result = self.extract_glyph_data(&glyph);
+        let result = if opts.grayscale && !matches!(self.lcd_mode, LcdMode::Grayscale) {
+            self.extract_gray_as_rgb(&glyph)
+        } else {
+            self.extract_glyph_data(&glyph)
+        };
 
         // Reset transform
         unsafe {
@@ -956,6 +994,48 @@ impl FtFont {
                 data
             }
         };
+
+        Some(FtGlyph {
+            bitmap: data,
+            width,
+            height,
+            bearing_x: (metrics.horiBearingX >> 6) as i32,
+            bearing_y: (metrics.horiBearingY >> 6) as i32,
+            advance: (metrics.horiAdvance >> 6) as f32,
+        })
+    }
+
+    /// Extract a grayscale (1 byte/pixel) bitmap into the 3-byte LCD atlas
+    /// layout by replicating coverage into all channels. The shader then
+    /// produces neutral (grayscale) antialiasing — used for synthetic italics.
+    fn extract_gray_as_rgb(&self, glyph: &freetype::GlyphSlot) -> Option<FtGlyph> {
+        let bitmap = glyph.bitmap();
+        let metrics = glyph.metrics();
+        let width = bitmap.width() as u32;
+        let height = bitmap.rows() as u32;
+
+        if width == 0 || height == 0 {
+            return Some(FtGlyph {
+                bitmap: vec![],
+                width: 0,
+                height: 0,
+                bearing_x: (metrics.horiBearingX >> 6) as i32,
+                bearing_y: (metrics.horiBearingY >> 6) as i32,
+                advance: (metrics.horiAdvance >> 6) as f32,
+            });
+        }
+
+        let buffer = bitmap.buffer();
+        let pitch = bitmap.pitch().unsigned_abs() as usize;
+        let mut data = Vec::with_capacity((width * height * 3) as usize);
+        for y in 0..height as usize {
+            for x in 0..width as usize {
+                let v = buffer[y * pitch + x];
+                data.push(v);
+                data.push(v);
+                data.push(v);
+            }
+        }
 
         Some(FtGlyph {
             bitmap: data,

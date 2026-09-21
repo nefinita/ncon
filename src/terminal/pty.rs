@@ -623,17 +623,19 @@ impl Pty {
 
     /// Get the home directory of the child process's owner
     pub fn child_home_dir(&self) -> Option<String> {
-        let uid = self.child_uid()?;
+        home_dir_for_uid(self.child_uid()?)
+    }
+}
 
-        // Use getpwuid to get user info
-        unsafe {
-            let pwd = libc::getpwuid(uid);
-            if pwd.is_null() {
-                return None;
-            }
-            let home = std::ffi::CStr::from_ptr((*pwd).pw_dir);
-            home.to_str().ok().map(|s| s.to_string())
+/// Home directory for a UID (via the password database).
+pub fn home_dir_for_uid(uid: u32) -> Option<String> {
+    unsafe {
+        let pwd = libc::getpwuid(uid);
+        if pwd.is_null() {
+            return None;
         }
+        let home = std::ffi::CStr::from_ptr((*pwd).pw_dir);
+        home.to_str().ok().map(|s| s.to_string())
     }
 }
 

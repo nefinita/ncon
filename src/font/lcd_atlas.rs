@@ -8,7 +8,8 @@ use glow::HasContext;
 use log::{debug, info, warn};
 use std::collections::HashMap;
 
-use super::freetype::{FtFont, FtGlyph, HintingMode, LcdFilterMode, LcdMode, SubpixelPhase};
+use super::freetype::{FtFont, FtGlyph, HintingMode, LcdFilterMode, LcdMode, StyleOptions, SubpixelPhase};
+use unicode_width::UnicodeWidthChar;
 
 /// Glyph ID based lookup key
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -38,6 +39,29 @@ pub struct GlyphInfo {
     pub bearing_x: f32,
     pub bearing_y: f32,
     pub advance: f32,
+}
+
+/// How synthetic italics are generated when the font has no real italic face.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ItalicMode {
+    /// Slant narrow glyphs, keep double-width (CJK) glyphs upright — the slant
+    /// would otherwise spill far into the neighbouring cell.
+    #[default]
+    Auto,
+    /// Slant everything.
+    Synthetic,
+    /// Never slant (use the regular glyph for italic cells).
+    Off,
+}
+
+impl ItalicMode {
+    pub fn from_config(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "synthetic" | "on" | "always" => Self::Synthetic,
+            "off" | "none" | "never" => Self::Off,
+            _ => Self::Auto,
+        }
+    }
 }
 
 /// Font style variant
@@ -98,6 +122,10 @@ pub struct LcdGlyphAtlas {
 
     /// Enable subpixel phase rendering
     subpixel_positioning: bool,
+    /// How to synthesize italics
+    italic_mode: ItalicMode,
+    /// Shear amount for synthetic italics (tan of the slant angle)
+    italic_shear: f32,
 }
 
 #[allow(dead_code)]
@@ -115,6 +143,8 @@ impl LcdGlyphAtlas {
         lcd_weights: Option<[u8; 5]>,
         subpixel_positioning: bool,
         hinting_mode: HintingMode,
+        italic_mode: ItalicMode,
+        italic_shear: f32,
     ) -> Result<Self> {
         let font_main = FtFont::from_bytes(
             font_data,
@@ -361,6 +391,8 @@ impl LcdGlyphAtlas {
             row_height,
             atlas_data,
             subpixel_positioning,
+            italic_mode,
+            italic_shear,
             dirty: false,
         })
     }
@@ -800,16 +832,34 @@ impl LcdGlyphAtlas {
         }
     }
 
+    /// Build rasterization options for a style/character pair.
+    fn style_options(&self, ch: char, style: FontStyle) -> StyleOptions {
+        let italic = matches!(style, FontStyle::Italic | FontStyle::BoldItalic);
+        let bold = matches!(style, FontStyle::Bold | FontStyle::BoldItalic);
+        let wide = UnicodeWidthChar::width(ch).unwrap_or(1) > 1;
+        let use_italic = match self.italic_mode {
+            ItalicMode::Off => false,
+            ItalicMode::Synthetic => italic,
+            ItalicMode::Auto => italic && !wide,
+        };
+        StyleOptions {
+            bold,
+            italic: use_italic,
+            shear: self.italic_shear,
+            // Synthetic italics use grayscale AA to avoid coloured ghost strokes
+            grayscale: use_italic,
+        }
+    }
+
     /// Rasterize styled glyph from font chain (main → symbols → CJK → fallbacks)
     fn rasterize_styled_from_chain(&self, ch: char, style: FontStyle) -> Option<FtGlyph> {
+        let opts = self.style_options(ch, style);
         let rasterize = |font: &FtFont| -> Option<FtGlyph> {
             match style {
                 FontStyle::Regular => font.rasterize(ch),
                 FontStyle::Bold => font.rasterize_bold(ch),
-                // Italic/BoldItalic need &self for transform, but rasterize_styled uses &self
-                // since it resets the transform. Use rasterize_styled on the font.
-                FontStyle::Italic => font.rasterize_styled(ch, false, true),
-                FontStyle::BoldItalic => font.rasterize_styled(ch, true, true),
+                // rasterize_styled resets the transform itself, so &self is fine
+                FontStyle::Italic | FontStyle::BoldItalic => font.rasterize_styled(ch, opts),
             }
         };
 
@@ -841,13 +891,15 @@ impl LcdGlyphAtlas {
         phase: SubpixelPhase,
         style: FontStyle,
     ) -> Option<FtGlyph> {
+        let opts = self.style_options(ch, style);
         macro_rules! try_font {
             ($font:expr) => {
                 match style {
                     FontStyle::Regular => $font.rasterize_with_phase(ch, phase),
                     FontStyle::Bold => $font.rasterize_bold_with_phase(ch, phase),
-                    FontStyle::Italic => $font.rasterize_italic_with_phase(ch, phase),
-                    FontStyle::BoldItalic => $font.rasterize_bold_italic_with_phase(ch, phase),
+                    FontStyle::Italic | FontStyle::BoldItalic => {
+                        $font.rasterize_styled_with_phase(ch, phase, opts)
+                    }
                 }
             };
         }

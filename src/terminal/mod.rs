@@ -741,8 +741,16 @@ impl Terminal {
     }
 
     /// Get the home directory of the logged-in user (child process owner)
+    ///
+    /// While `login` is still waiting for credentials the PTY child is root,
+    /// so walk past it (same detection as the IME) and only fall back to the
+    /// direct child when nobody is logged in yet.
     pub fn user_home_dir(&self) -> Option<String> {
-        self.pty.child_home_dir()
+        let uid = self
+            .pty
+            .logged_in_uid()
+            .or_else(|| self.pty.child_uid())?;
+        crate::terminal::pty::home_dir_for_uid(uid)
     }
 
     /// Get the UID of the child process (for IME user detection)
