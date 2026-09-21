@@ -236,7 +236,7 @@ pub fn start_fcitx5_as_user(child_uid: Option<u32>, backend: ImeBackend) -> bool
         let first_try = !SESSION_BUS_TRIED.swap(true, Ordering::Relaxed);
         if first_try
             && std::path::Path::new(&session_socket).exists()
-            && std::os::unix::net::UnixStream::connect(&session_socket).is_ok()
+            && bus_accepts_unix(&session_socket)
         {
             let addr = format!("unix:path={}", session_socket);
             info!(
@@ -267,7 +267,7 @@ pub fn start_fcitx5_as_user(child_uid: Option<u32>, backend: ImeBackend) -> bool
     }
     // This instance only serves the D-Bus frontend. Keep it away from the
     // display (wayland/xcb/xim/ibus), the desktop UI and notifications.
-    const DISABLED_ADDONS: &str = "wayland,waylandim,xcb,xim,ibusfrontend,fcitx4frontend,kimpanel,classicui,notifications,notificationitem,virtualkeyboard,portalsettingmonitor";
+    const DISABLED_ADDONS: &str = "wayland,waylandim,xcb,xim,ibusfrontend,fcitx4frontend,kimpanel,classicui,notifications,notificationitem,virtualkeyboard";
     let locale = detect_system_locale();
 
     // Start a NEW dbus-daemon as the user (not root).
@@ -393,6 +393,30 @@ pub fn start_fcitx5_as_user(child_uid: Option<u32>, backend: ImeBackend) -> bool
     true
 }
 
+/// Quick probe: does the D-Bus daemon at `path` accept us?
+///
+/// A healthy bus stays silent until we send `AUTH …`; a bus that rejects us
+/// (dbus-broker refuses clients that are not the bus owner, e.g. root on the
+/// user's session bus) resets the connection immediately.
+fn bus_accepts_unix(path: &str) -> bool {
+    use std::io::Read;
+
+    match std::os::unix::net::UnixStream::connect(path) {
+        Ok(mut stream) => {
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(250)));
+            let mut byte = [0u8; 1];
+            match stream.read(&mut byte) {
+                Ok(0) => false, // EOF: rejected
+                Ok(_) => true,
+                Err(e) => matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ),
+            }
+        }
+        Err(_) => false,
+    }
+}
 /// System default locale (from `/etc/locale.conf`), used for the isolated
 /// fcitx5 instance. Falls back to `C.UTF-8` when unset.
 fn detect_system_locale() -> String {

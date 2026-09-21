@@ -3722,6 +3722,10 @@ Make sure seatd/logind is running and you're on an active VT."
                     }
                     Err(e) => {
                         info!("fcitx5 IME retry failed: {}", e);
+                        // Let the next retry re-evaluate the setup: the first
+                        // attempt may have used the user's session bus, and on
+                        // failure we want to fall back to an isolated instance.
+                        fcitx5_launched = false;
                         ime_retry_at =
                             Some(std::time::Instant::now() + Duration::from_secs(10));
                     }
