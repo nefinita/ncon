@@ -3,8 +3,9 @@
 //! Search and select system fonts
 
 use anyhow::{anyhow, Result};
-use fontconfig::Fontconfig;
+use fontconfig::{Fontconfig, Pattern};
 use log::{info, warn};
+use std::ffi::CString;
 use std::path::{Path, PathBuf};
 
 /// Font search result
@@ -81,7 +82,33 @@ impl FontFinder {
     }
 
     /// Search for CJK font
+    ///
+    /// A zh/ja/ko locale decides which regional variant is right
+    /// (SC/TC/HK/JP/KR); without one we keep the historical fallbacks.
     pub fn find_cjk(&self) -> Option<FontMatch> {
+        if let Some(lang) = locale_lang_tag() {
+            for family in cjk_families_for_lang(lang) {
+                if let Some(m) = self.find_font(family) {
+                    info!(
+                        "CJK font (locale {}): {} ({}, face {})",
+                        lang,
+                        m.family,
+                        m.path.display(),
+                        m.index
+                    );
+                    return Some(m);
+                }
+            }
+
+            // None of the curated families is installed: let fontconfig pick
+            // any font that supports the language.
+            if let Some(m) = self.find_font_for_lang(lang) {
+                return Some(m);
+            }
+            warn!("CJK font for locale {} not found via fontconfig", lang);
+        }
+
+        // Non-CJK locale (or nothing found above): historical fallbacks.
         let candidates = [
             "Noto Sans CJK JP",
             "Noto Sans CJK",
@@ -100,6 +127,29 @@ impl FontFinder {
 
         warn!("CJK font not found");
         None
+    }
+
+    /// Let fontconfig choose a font supporting `lang`, with no family preference.
+    ///
+    /// Only used when no curated family for the locale is installed:
+    /// fontconfig's ranking may prefer fonts that are not great for terminals
+    /// (e.g. bitmap-hinted WenQuanYi Zen Hei), but it stays language-correct.
+    fn find_font_for_lang(&self, lang: &str) -> Option<FontMatch> {
+        let mut pattern = Pattern::new(&self.fc);
+        pattern.add_string(fontconfig::FC_LANG.as_cstr(), &CString::new(lang).ok()?);
+        let matched = pattern.font_match();
+
+        let family = matched.name()?.to_string();
+        let path = PathBuf::from(matched.filename()?);
+        let index = matched.face_index().unwrap_or(0);
+        info!(
+            "CJK font (fontconfig lang={}): {} ({}, face {})",
+            lang,
+            family,
+            path.display(),
+            index
+        );
+        Some(FontMatch { path, family, index })
     }
 
     /// Search for color emoji font
@@ -155,6 +205,81 @@ impl FontFinder {
 
         None
     }
+}
+
+/// Preferred CJK families per fontconfig language tag, best first.
+///
+/// Kept explicit instead of trusting fontconfig's own `lang=` ranking, which
+/// can prefer bitmap-hinted fonts (WenQuanYi Zen Hei) over Noto Sans CJK SC on
+/// a zh-cn system.
+fn cjk_families_for_lang(lang: &str) -> &'static [&'static str] {
+    match lang {
+        "zh-cn" => &[
+            "Noto Sans CJK SC",
+            "Source Han Sans SC",
+            "Sarasa Term SC",
+            "Sarasa Gothic SC",
+        ],
+        "zh-tw" => &[
+            "Noto Sans CJK TC",
+            "Source Han Sans TC",
+            "Sarasa Term TC",
+            "Sarasa Gothic TC",
+        ],
+        "zh-hk" => &[
+            "Noto Sans CJK HK",
+            "Source Han Sans HC",
+            "Sarasa Term HC",
+            "Sarasa Gothic HC",
+        ],
+        "ja" => &[
+            "Noto Sans CJK JP",
+            "Source Han Sans JP",
+            "Sarasa Term J",
+            "Sarasa Gothic J",
+        ],
+        "ko" => &[
+            "Noto Sans CJK KR",
+            "Source Han Sans KR",
+            "Sarasa Term K",
+            "Sarasa Gothic K",
+        ],
+        _ => &[],
+    }
+}
+
+/// Map a POSIX locale to a fontconfig language tag for CJK, if any.
+///
+/// `zh_CN.UTF-8` → `zh-cn`, `zh_TW` → `zh-tw`, `zh_HK` → `zh-hk`,
+/// `ja_JP@…` → `ja`, `ko_KR` → `ko`; non-CJK locales return `None`.
+fn lang_tag_from_locale(locale: &str) -> Option<&'static str> {
+    let base = locale.split(['.', '@']).next().unwrap_or(locale);
+    let mut parts = base.split(['_', '-']);
+    let language = parts.next().unwrap_or("").to_ascii_lowercase();
+    let territory = parts.next().unwrap_or("").to_ascii_uppercase();
+
+    match language.as_str() {
+        "zh" => Some(match territory.as_str() {
+            "TW" => "zh-tw",
+            "HK" | "MO" => "zh-hk",
+            _ => "zh-cn",
+        }),
+        "ja" => Some("ja"),
+        "ko" => Some("ko"),
+        _ => None,
+    }
+}
+
+/// fontconfig language tag for the current locale (`LC_ALL` → `LC_CTYPE` → `LANG`).
+///
+/// The first variable naming a CJK language wins: an `en_US` `LC_CTYPE` only
+/// overrides character classes, so it should not shadow a `zh_CN` `LANG`.
+fn locale_lang_tag() -> Option<&'static str> {
+    ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .filter_map(|var| std::env::var(var).ok())
+        .filter(|value| !value.is_empty() && value != "C" && value != "POSIX")
+        .find_map(|value| lang_tag_from_locale(&value))
 }
 
 /// Load font file
@@ -341,4 +466,57 @@ pub fn nerd_font_face() -> Option<(PathBuf, i32)> {
         font_match.index
     );
     Some((font_match.path, font_match.index))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn locale_tags_map_to_cjk_variants() {
+        assert_eq!(lang_tag_from_locale("zh_CN.UTF-8"), Some("zh-cn"));
+        assert_eq!(lang_tag_from_locale("zh_SG.UTF-8"), Some("zh-cn"));
+        assert_eq!(lang_tag_from_locale("zh_TW.UTF-8"), Some("zh-tw"));
+        assert_eq!(lang_tag_from_locale("zh_HK.UTF-8"), Some("zh-hk"));
+        assert_eq!(lang_tag_from_locale("zh_MO"), Some("zh-hk"));
+        assert_eq!(lang_tag_from_locale("ja_JP.UTF-8"), Some("ja"));
+        assert_eq!(lang_tag_from_locale("ko_KR.UTF-8@euckr"), Some("ko"));
+        // Non-CJK locales must not invent a CJK preference.
+        assert_eq!(lang_tag_from_locale("en_US.UTF-8"), None);
+        assert_eq!(lang_tag_from_locale("C"), None);
+        assert_eq!(lang_tag_from_locale("POSIX"), None);
+    }
+
+    #[test]
+    fn cjk_families_follow_the_language() {
+        let sc = cjk_families_for_lang("zh-cn");
+        assert!(sc.iter().any(|f| f.contains("SC")), "zh-cn wants a Simplified Chinese family");
+        assert!(!sc.iter().any(|f| f.contains("JP")), "zh-cn must not fall back to Japanese");
+
+        assert!(cjk_families_for_lang("zh-tw").iter().any(|f| f.contains("TC")));
+        assert!(cjk_families_for_lang("zh-hk").iter().any(|f| f.contains("HC")));
+        assert!(cjk_families_for_lang("ja").iter().any(|f| f.contains("JP")));
+        assert!(cjk_families_for_lang("ko").iter().any(|f| f.contains("KR")));
+        assert!(cjk_families_for_lang("en").is_empty());
+    }
+
+    /// Integration: fontconfig must be able to name a zh-cn font on a machine
+    /// that has CJK fonts at all (the curated list is only the first choice).
+    #[test]
+    fn language_query_returns_a_font() {
+        let Ok(finder) = FontFinder::new() else {
+            return;
+        };
+        match finder.find_font_for_lang("zh-cn") {
+            Some(m) => {
+                assert!(
+                    m.path.exists(),
+                    "fontconfig returned a missing file: {}",
+                    m.path.display()
+                );
+                assert!(m.index >= 0);
+            }
+            None => eprintln!("skipping: fontconfig knows no zh-cn font"),
+        }
+    }
 }
