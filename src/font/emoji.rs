@@ -166,8 +166,10 @@ pub struct EmojiLoader {
 
 impl EmojiLoader {
     /// Load emoji from font file
-    pub fn load<P: AsRef<Path>>(path: P, target_size: u32) -> Option<Self> {
-        info!("EmojiLoader: loading from {:?}", path.as_ref());
+    ///
+    /// `index` selects a face inside a font collection (0 for single-face files).
+    pub fn load<P: AsRef<Path>>(path: P, index: i32, target_size: u32) -> Option<Self> {
+        info!("EmojiLoader: loading from {:?} (face {})", path.as_ref(), index);
 
         // mmap + share the font data (file-backed, one copy per path)
         let mapped = crate::font::loader::load_font_static(path.as_ref());
@@ -180,7 +182,10 @@ impl EmojiLoader {
         };
         info!("EmojiLoader: {} bytes mapped", static_data.len());
 
-        let face = rustybuzz::Face::from_slice(static_data, 0);
+        // Face index matters for collections; fall back to face 0 if the
+        // requested index does not exist (still better than no GSUB at all).
+        let face = rustybuzz::Face::from_slice(static_data, index as u32)
+            .or_else(|| rustybuzz::Face::from_slice(static_data, 0));
         if face.is_some() {
             info!("EmojiLoader: rustybuzz Face created successfully (GSUB support)");
         }
@@ -1064,7 +1069,10 @@ pub struct EmojiAtlas {
 
 impl EmojiAtlas {
     /// Create a new emoji atlas
-    pub fn new(emoji_font_path: Option<&str>, target_size: u32) -> Self {
+    ///
+    /// `face_index` selects a face inside a collection; it only applies to the
+    /// configured path (the built-in fallbacks are single-face files).
+    pub fn new(emoji_font_path: Option<&str>, face_index: i32, target_size: u32) -> Self {
         let width = 2048u32;
         let height = 2048u32;
         let data = vec![0u8; (width * height * 4) as usize];
@@ -1080,7 +1088,7 @@ impl EmojiAtlas {
         ];
 
         let mut loader = None;
-        for path in &emoji_font_paths {
+        for (candidate, path) in emoji_font_paths.iter().enumerate() {
             if path.is_empty() {
                 continue;
             }
@@ -1089,7 +1097,8 @@ impl EmojiAtlas {
                 continue;
             }
             info!("EmojiAtlas: trying font: {}", path);
-            if let Some(l) = EmojiLoader::load(path, target_size) {
+            let index = if candidate == 0 { face_index } else { 0 };
+            if let Some(l) = EmojiLoader::load(path, index, target_size) {
                 info!("EmojiAtlas: emoji font loaded: {}", path);
                 loader = Some(l);
                 break;
@@ -1476,7 +1485,7 @@ mod tests {
             return;
         }
 
-        let loader = EmojiLoader::load(path, 32).expect("emoji font should load");
+        let loader = EmojiLoader::load(path, 0, 32).expect("emoji font should load");
 
         // Index parsed, but no bitmap decoded yet
         assert!(

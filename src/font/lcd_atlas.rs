@@ -9,6 +9,7 @@ use log::{debug, info, warn};
 use std::collections::HashMap;
 
 use super::freetype::{FtFont, FtGlyph, HintingMode, LcdFilterMode, LcdMode, StyleOptions, SubpixelPhase};
+use super::loader::FontFace;
 use unicode_width::UnicodeWidthChar;
 
 /// Glyph ID based lookup key
@@ -134,10 +135,10 @@ impl LcdGlyphAtlas {
     /// subpixel_positioning: Enable 1/3 pixel phase rendering
     pub fn new(
         gl: &glow::Context,
-        font_data: &'static [u8],
+        font_main_face: FontFace,
         font_size: u32,
-        symbols_font_data: Option<&'static [u8]>,
-        cjk_font_data: Option<&'static [u8]>,
+        symbols_face: Option<FontFace>,
+        cjk_face: Option<FontFace>,
         lcd_mode: LcdMode,
         lcd_filter: LcdFilterMode,
         lcd_weights: Option<[u8; 5]>,
@@ -146,8 +147,8 @@ impl LcdGlyphAtlas {
         italic_mode: ItalicMode,
         italic_shear: f32,
     ) -> Result<Self> {
-        let font_main = FtFont::from_bytes(
-            font_data,
+        let font_main = FtFont::from_face(
+            font_main_face,
             font_size,
             lcd_mode,
             lcd_filter,
@@ -155,9 +156,9 @@ impl LcdGlyphAtlas {
             hinting_mode,
         )?;
 
-        let font_symbols = if let Some(symbols_data) = symbols_font_data {
-            match FtFont::from_bytes(
-                symbols_data,
+        let font_symbols = if let Some(face) = symbols_face {
+            match FtFont::from_face(
+                face,
                 font_size,
                 lcd_mode,
                 lcd_filter,
@@ -177,9 +178,9 @@ impl LcdGlyphAtlas {
             None
         };
 
-        let font_cjk = if let Some(cjk_data) = cjk_font_data {
-            match FtFont::from_bytes(
-                cjk_data,
+        let font_cjk = if let Some(face) = cjk_face {
+            match FtFont::from_face(
+                face,
                 font_size,
                 lcd_mode,
                 lcd_filter,
@@ -427,18 +428,23 @@ impl LcdGlyphAtlas {
 
     /// Load a new fallback font via fontconfig for a specific character
     fn load_fontconfig_fallback(&mut self, ch: char) -> Option<FtGlyph> {
-        let path = super::fontconfig::find_font_for_char(ch)?;
-        let path_str = path.to_string_lossy().to_string();
+        let (path, index) = super::fontconfig::find_font_for_char(ch)?;
+        // A collection may supply several different faces; key by both.
+        let key = if index == 0 {
+            path.to_string_lossy().to_string()
+        } else {
+            format!("{}#{}", path.to_string_lossy(), index)
+        };
 
         // Skip if already loaded
-        if self.font_fallbacks.iter().any(|(p, _)| *p == path_str) {
+        if self.font_fallbacks.iter().any(|(p, _)| *p == key) {
             return None;
         }
 
         // mmap (and de-duplicate) the fallback font so it stays file-backed
         let font_data = crate::font::loader::load_font_static(&path).ok()?;
-        let font = FtFont::from_bytes(
-            font_data,
+        let font = FtFont::from_face(
+            FontFace::new(font_data, index),
             self.font_size,
             self.lcd_mode,
             self.lcd_filter,
@@ -449,10 +455,13 @@ impl LcdGlyphAtlas {
 
         let glyph = font.rasterize(ch);
         info!(
-            "Fontconfig fallback loaded: {} (for U+{:04X} '{}')",
-            path_str, ch as u32, ch
+            "Fontconfig fallback loaded: {} (face {}, for U+{:04X} '{}')",
+            path.to_string_lossy(),
+            index,
+            ch as u32,
+            ch
         );
-        self.font_fallbacks.push((path_str, font));
+        self.font_fallbacks.push((key, font));
         glyph
     }
 

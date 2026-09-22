@@ -17,12 +17,9 @@ pub mod shaper;
 
 // Re-export for convenience (allow dead_code since these are library exports)
 #[allow(unused_imports)]
-pub use fontconfig::{
-    load_cjk_font_fc, load_emoji_font_fc, load_system_font_fc, resolve_font, resolve_font_path,
-    FontFinder,
-};
+pub use fontconfig::{load_cjk_font_fc, load_emoji_font_fc, load_system_font_fc, FontFinder};
 #[allow(unused_imports)]
-pub use loader::load_font_static;
+pub use loader::{load_font, load_font_static, FontFace};
 #[allow(unused_imports)]
 pub use freetype::{FtFont, FtGlyph, LcdMode};
 #[allow(unused_imports)]

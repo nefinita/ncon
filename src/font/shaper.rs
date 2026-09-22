@@ -7,6 +7,7 @@
 //! **glyph selection** (positions are fixed to cell grid).
 
 use crate::font::lcd_atlas::GlyphKey;
+use crate::font::loader::FontFace;
 use crate::terminal::grid::Grid;
 use log::debug;
 use std::str::FromStr;
@@ -41,11 +42,13 @@ pub struct TextShaper {
 impl TextShaper {
     /// Create shaper from font data
     ///
-    /// Font data requires `'static` lifetime (allocated with `Box::leak`)
-    pub fn new(font_data: &'static [u8], cjk_font_data: Option<&'static [u8]>) -> Option<Self> {
-        let face_main = rustybuzz::Face::from_slice(font_data, 0)?;
+    /// Font data requires `'static` lifetime (allocated with `Box::leak`).
+    /// The face index selects a face inside font collections (`.ttc`).
+    pub fn new(font: FontFace, cjk_font: Option<FontFace>) -> Option<Self> {
+        let face_main = rustybuzz::Face::from_slice(font.data, font.index as u32)?;
 
-        let face_cjk = cjk_font_data.and_then(|data| rustybuzz::Face::from_slice(data, 0));
+        let face_cjk =
+            cjk_font.and_then(|f| rustybuzz::Face::from_slice(f.data, f.index as u32));
 
         // Enable OTF features: calt, liga, clig
         let features = ["calt", "liga", "clig"]

@@ -857,13 +857,13 @@ fn find_drm_device() -> Result<String> {
 /// Load font for testing: NCON_FONT env var -> ligature font -> system font
 ///
 /// Uses the shared mmap loader so the test path matches the runtime path.
-fn load_test_font() -> Result<&'static [u8]> {
+fn load_test_font() -> Result<font::loader::FontFace> {
     // Use environment variable if specified
     if let Ok(path) = std::env::var("NCON_FONT") {
-        let data = font::loader::load_font_static(std::path::Path::new(&path))
+        let face = font::loader::load_font(&path)
             .with_context(|| format!("Cannot read font specified by NCON_FONT: {}", path))?;
         nprint!("Font: {} (NCON_FONT)", path);
-        return Ok(data);
+        return Ok(face);
     }
 
     // Search for ligature-capable fonts first
@@ -877,9 +877,9 @@ fn load_test_font() -> Result<&'static [u8]> {
     ];
 
     for path in &ligature_fonts {
-        if let Ok(data) = font::loader::load_font_static(std::path::Path::new(path)) {
+        if let Ok(face) = font::loader::load_font(path) {
             nprint!("Font: {} (ligature-capable)", path);
-            return Ok(data);
+            return Ok(face);
         }
     }
 
@@ -957,17 +957,17 @@ fn test_shaper_mode() -> Result<()> {
     mem_track::snapshot("start");
 
     // Use NCON_FONT env var or prioritize ligature fonts
-    let font_data: &'static [u8] = load_test_font().context("Failed to load font")?;
+    let font_face: font::loader::FontFace = load_test_font().context("Failed to load font")?;
     #[cfg(feature = "mem-debug")]
     mem_track::snapshot("after main font read+leak");
-    let cjk_font_data: Option<&'static [u8]> = font::loader::load_cjk_font();
+    let cjk_font_face: Option<font::loader::FontFace> = font::loader::load_cjk_font();
     #[cfg(feature = "mem-debug")]
     mem_track::snapshot("after cjk font read+leak");
 
     nprint!("Font loaded");
 
     // Create shaper (rustybuzz; zero-copy glyph lookups)
-    let mut shaper = match font::shaper::TextShaper::new(font_data, cjk_font_data) {
+    let mut shaper = match font::shaper::TextShaper::new(font_face, cjk_font_face) {
         Some(s) => s,
         None => {
             nprint!("Failed to create shaper");
@@ -1702,16 +1702,13 @@ Make sure seatd/logind is running and you're on an active VT."
     info!("Phase 2: fonts & shaders...");
     let gl = renderer.gl();
 
-    // Load font (supports both file paths and font family names via fontconfig)
-    // Falls back to system monospace if the configured font cannot be resolved
-    let font_data: &'static [u8] = if !cfg.font.main.is_empty() {        // mmap + de-duplicate (see font::loader): keeps big CJK fonts
-        // file-backed instead of copying them into anonymous memory
-        let resolved = font::fontconfig::resolve_font_path(&cfg.font.main).and_then(|p| {
-            font::loader::load_font_static(&p)
-                .map_err(|e| anyhow!("Failed to map font file {}: {}", p.display(), e))
-        });
-        match resolved {
-            Ok(data) => data,
+    // Load font (supports file paths, `path#face` suffixes, and font family
+    // names via fontconfig). Falls back to system monospace if it cannot be
+    // resolved. mmap + de-duplicate (see font::loader): keeps big CJK
+    // collections file-backed instead of copying them into anonymous memory.
+    let main_face: font::loader::FontFace = if !cfg.font.main.is_empty() {
+        match font::loader::load_font(&cfg.font.main) {
+            Ok(face) => face,
             Err(e) => {
                 warn!(
                     "Font \"{}\" not found ({}), falling back to system monospace",
@@ -1737,14 +1734,10 @@ Make sure seatd/logind is running and you're on an active VT."
         );
     }
 
-    // Load CJK font (supports file paths and font names, continue on failure)
-    let cjk_font_data: Option<&[u8]> = if !cfg.font.cjk.is_empty() {
-        let resolved = font::fontconfig::resolve_font_path(&cfg.font.cjk).and_then(|p| {
-            font::loader::load_font_static(&p)
-                .map_err(|e| anyhow!("Failed to map font file {}: {}", p.display(), e))
-        });
-        match resolved {
-            Ok(d) => Some(d),
+    // Load CJK font (file path, `path#face`, or font name; continue on failure)
+    let cjk_face: Option<font::loader::FontFace> = if !cfg.font.cjk.is_empty() {
+        match font::loader::load_font(&cfg.font.cjk) {
+            Ok(face) => Some(face),
             Err(e) => {
                 warn!("CJK font \"{}\" not found ({}), disabled", cfg.font.cjk, e);
                 None
@@ -1754,14 +1747,10 @@ Make sure seatd/logind is running and you're on an active VT."
         font::loader::load_cjk_font()
     };
 
-    // Load symbols/Nerd Font (supports file paths and font names, continue on failure)
-    let symbols_font_data: Option<&[u8]> = if !cfg.font.symbols.is_empty() {
-        let resolved = font::fontconfig::resolve_font_path(&cfg.font.symbols).and_then(|p| {
-            font::loader::load_font_static(&p)
-                .map_err(|e| anyhow!("Failed to map font file {}: {}", p.display(), e))
-        });
-        match resolved {
-            Ok(d) => Some(d),
+    // Load symbols/Nerd Font (file path, `path#face`, or font name; continue on failure)
+    let symbols_face: Option<font::loader::FontFace> = if !cfg.font.symbols.is_empty() {
+        match font::loader::load_font(&cfg.font.symbols) {
+            Ok(face) => Some(face),
             Err(e) => {
                 warn!(
                     "Symbols font \"{}\" not found ({}), disabled",
@@ -1771,9 +1760,12 @@ Make sure seatd/logind is running and you're on an active VT."
             }
         }
     } else {
-        // Auto-detect Nerd Font via fontconfig
-        font::fontconfig::load_nerd_font_fc()
-            .map(|d| -> &'static [u8] { Box::leak(d.into_boxed_slice()) })
+        // Auto-detect Nerd Font via fontconfig (mmap, no anonymous copy)
+        font::fontconfig::nerd_font_face().and_then(|(path, index)| {
+            font::loader::load_font_static(&path)
+                .ok()
+                .map(|data| font::loader::FontFace::new(data, index))
+        })
     };
 
     // LCD filter settings (from config)
@@ -1795,10 +1787,10 @@ Make sure seatd/logind is running and you're on an active VT."
     info!("Creating FreeType LCD atlas...");
     let mut glyph_atlas = font::lcd_atlas::LcdGlyphAtlas::new(
         gl,
-        font_data,
+        main_face,
         font_size,
-        symbols_font_data,
-        cjk_font_data,
+        symbols_face,
+        cjk_face,
         lcd_mode,
         lcd_filter,
         cfg.font.lcd_weights,
@@ -1822,33 +1814,32 @@ Make sure seatd/logind is running and you're on an active VT."
     // Text shaper for ligature support (rustybuzz; zero-copy glyph lookups).
     // NOTE: deliberately does not keep a `fontdue::Font` alive — fontdue
     // inflates large CJK fonts by roughly an order of magnitude in memory.
-    let mut text_shaper = font::shaper::TextShaper::new(font_data, cjk_font_data);
+    let mut text_shaper = font::shaper::TextShaper::new(main_face, cjk_face);
     if text_shaper.is_some() {
         info!("Text shaper initialized (ligatures enabled)");
     }
 
-    // Create emoji atlas (resolve font name to path if needed)
-    let emoji_resolved_path: Option<String> = if !cfg.font.emoji.is_empty() {
-        let p = std::path::Path::new(&cfg.font.emoji);
-        if p.exists() {
-            Some(cfg.font.emoji.clone())
-        } else {
-            // Try resolving as font family name via fontconfig
-            let finder = font::fontconfig::FontFinder::new().ok();
-            finder
-                .and_then(|f| f.find_font(&cfg.font.emoji))
-                .map(|m| m.path.to_string_lossy().to_string())
-                .or_else(|| {
-                    warn!("Emoji font not found: {}", cfg.font.emoji);
-                    None
-                })
+    // Create emoji atlas (resolve font name to path + face index if needed)
+    let emoji_resolved: Option<(String, i32)> = if !cfg.font.emoji.is_empty() {
+        match font::loader::resolve_font_spec(&cfg.font.emoji) {
+            Ok((path, index)) => Some((path.to_string_lossy().to_string(), index)),
+            Err(e) => {
+                warn!("Emoji font not found: {} ({})", cfg.font.emoji, e);
+                None
+            }
         }
     } else {
         None
     };
-    let emoji_font_path = emoji_resolved_path.as_deref();
-    let mut emoji_atlas =
-        font::emoji::EmojiAtlas::new(emoji_font_path, glyph_atlas.cell_height as u32);
+    let (emoji_font_path, emoji_face_index) = match &emoji_resolved {
+        Some((path, index)) => (Some(path.as_str()), *index),
+        None => (None, 0),
+    };
+    let mut emoji_atlas = font::emoji::EmojiAtlas::new(
+        emoji_font_path,
+        emoji_face_index,
+        glyph_atlas.cell_height as u32,
+    );
     if emoji_atlas.is_available() {
         info!("Emoji font loaded: {:?}", emoji_font_path);
     } else {

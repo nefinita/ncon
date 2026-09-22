@@ -281,15 +281,18 @@ impl FtFont {
     ///
     /// The bytes must live for the whole process (`'static`): they are borrowed
     /// by FreeType, not copied. `font::loader::load_font_static` hands out
-    /// memory-mapped slices.
-    pub fn from_bytes(
-        data: &'static [u8],
+    /// memory-mapped slices. `face.index` selects the face inside a font
+    /// collection (`.ttc`/`.otc`); it must not be dropped, or collections
+    /// silently load their first face.
+    pub fn from_face(
+        face: crate::font::loader::FontFace,
         size_px: u32,
         lcd_mode: LcdMode,
         lcd_filter: LcdFilterMode,
         lcd_weights: Option<[u8; 5]>,
         hinting_mode: HintingMode,
     ) -> Result<Self> {
+        let crate::font::loader::FontFace { data, index } = face;
         let library =
             Library::init().map_err(|e| anyhow!("FreeType initialization failed: {:?}", e))?;
 
@@ -316,7 +319,7 @@ impl FtFont {
         // Borrow the caller's (memory-mapped) bytes instead of copying them:
         // `new_memory_face` would clone the whole file into an Rc<Vec<u8>>.
         let face = library
-            .new_memory_face2(data, 0)
+            .new_memory_face2(data, index as isize)
             .map_err(|e| anyhow!("FreeType font loading failed: {:?}", e))?;
 
         // Set pixel size

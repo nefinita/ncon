@@ -14,6 +14,8 @@ pub struct FontMatch {
     pub path: PathBuf,
     /// Font name
     pub family: String,
+    /// Face index inside the file (font collections hold several faces)
+    pub index: i32,
 }
 
 /// Search fonts using fontconfig
@@ -43,6 +45,7 @@ impl FontFinder {
                 return Some(FontMatch {
                     path: font.path,
                     family: font.name,
+                    index: font.index.unwrap_or(0),
                 });
             }
             warn!(
@@ -155,48 +158,43 @@ impl FontFinder {
 }
 
 /// Load font file
+#[allow(dead_code)]
 pub fn load_font_file(path: &std::path::Path) -> Result<Vec<u8>> {
     std::fs::read(path).map_err(|e| anyhow!("Failed to read font file: {} ({})", path.display(), e))
 }
 
-/// Resolve a font specifier: if it's a valid file path, read it directly.
-/// Otherwise, treat it as a font family name and search via fontconfig.
+/// Resolve a font specifier to a file path plus face index (no read, no cache).
 ///
-/// Prefer [`resolve_font_path`] + [`crate::font::loader::load_font_static`],
-/// which map the file instead of copying it into anonymous memory.
-#[allow(dead_code)]
-pub fn resolve_font(specifier: &str) -> Result<Vec<u8>> {
-    let path = resolve_font_path(specifier)?;
-    load_font_file(&path)
-}
-
-/// Resolve a font specifier to a file path (no read, no cache).
+/// Lookup order: absolute path, fontconfig family name, then relative path.
 ///
-/// Same lookup order as [`resolve_font`]: absolute path, fontconfig family
-/// name, then relative path.
-pub fn resolve_font_path(specifier: &str) -> Result<PathBuf> {
+/// The face index matters for font collections: fontconfig reports which face
+/// of a `.ttc` matches the requested family. The mmap loader
+/// ([`crate::font::loader::load_font`]) also understands an explicit
+/// `path#index` / `path#family` suffix, which this function does not handle.
+pub fn resolve_font_face(specifier: &str) -> Result<(PathBuf, i32)> {
     let path = Path::new(specifier);
     if path.is_absolute() && path.exists() {
         info!("Font loaded from path: {}", specifier);
-        return Ok(path.to_path_buf());
+        return Ok((path.to_path_buf(), 0));
     }
 
     // Try as font family name via fontconfig
     let finder = FontFinder::new()?;
     if let Some(font_match) = finder.find_font(specifier) {
         info!(
-            "Font resolved by name: \"{}\" → {} ({})",
+            "Font resolved by name: \"{}\" → {} ({}, face {})",
             specifier,
             font_match.family,
-            font_match.path.display()
+            font_match.path.display(),
+            font_match.index
         );
-        return Ok(font_match.path);
+        return Ok((font_match.path, font_match.index));
     }
 
     // Last resort: try as relative path
     if path.exists() {
         info!("Font loaded from relative path: {}", specifier);
-        return Ok(path.to_path_buf());
+        return Ok((path.to_path_buf(), 0));
     }
 
     Err(anyhow!(
@@ -222,30 +220,32 @@ pub fn load_system_font_fc() -> Result<Vec<u8>> {
     Err(anyhow!("Monospace font not found via fontconfig"))
 }
 
-/// Find the system monospace font path (no file read, no copy).
-pub fn system_font_path() -> Result<PathBuf> {
+/// Find the system monospace font path + face index (no file read, no copy).
+pub fn system_font_face() -> Result<(PathBuf, i32)> {
     let finder = FontFinder::new()?;
     if let Some(font_match) = finder.find_monospace() {
         info!(
-            "System font (fontconfig): {} ({})",
+            "System font (fontconfig): {} ({}, face {})",
             font_match.family,
-            font_match.path.display()
+            font_match.path.display(),
+            font_match.index
         );
-        return Ok(font_match.path);
+        return Ok((font_match.path, font_match.index));
     }
     Err(anyhow!("Monospace font not found via fontconfig"))
 }
 
-/// Find a CJK font path (no file read, no copy).
-pub fn cjk_font_path() -> Option<PathBuf> {
+/// Find a CJK font path + face index (no file read, no copy).
+pub fn cjk_font_face() -> Option<(PathBuf, i32)> {
     let finder = FontFinder::new().ok()?;
     let m = finder.find_cjk()?;
     info!(
-        "CJK font (fontconfig): {} ({})",
+        "CJK font (fontconfig): {} ({}, face {})",
         m.family,
-        m.path.display()
+        m.path.display(),
+        m.index
     );
-    Some(m.path)
+    Some((m.path, m.index))
 }
 
 /// Search and load CJK font using fontconfig (kept for API completeness)
@@ -296,13 +296,13 @@ pub fn load_emoji_font_fc() -> Option<Vec<u8>> {
 
 /// Find a font that supports a specific Unicode codepoint using fontconfig.
 /// Uses `fc-match` command with charset query.
-/// Returns the font file path if found.
-pub fn find_font_for_char(ch: char) -> Option<PathBuf> {
+/// Returns the font file path and face index if found.
+pub fn find_font_for_char(ch: char) -> Option<(PathBuf, i32)> {
     use std::process::Command;
 
     let charset_query = format!(":charset={:04X}", ch as u32);
     let output = Command::new("fc-match")
-        .args(["-f", "%{file}", &charset_query])
+        .args(["-f", "%{file}\n%{index}", &charset_query])
         .output()
         .ok()?;
 
@@ -310,46 +310,35 @@ pub fn find_font_for_char(ch: char) -> Option<PathBuf> {
         return None;
     }
 
-    let path_str = String::from_utf8(output.stdout).ok()?;
-    let path_str = path_str.trim();
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let mut lines = stdout.lines();
+    let path_str = lines.next()?.trim();
     if path_str.is_empty() {
         return None;
     }
+    // `%{index}` is empty for some fonts — default to face 0.
+    let index = lines
+        .next()
+        .and_then(|s| s.trim().parse::<i32>().ok())
+        .unwrap_or(0);
 
     let path = PathBuf::from(path_str);
     if path.exists() {
-        Some(path)
+        Some((path, index))
     } else {
         None
     }
 }
 
-/// Search and load Nerd Font (symbol/icon font) using fontconfig
-pub fn load_nerd_font_fc() -> Option<Vec<u8>> {
-    let finder = match FontFinder::new() {
-        Ok(f) => f,
-        Err(e) => {
-            warn!("fontconfig initialization failed: {:?}", e);
-            return None;
-        }
-    };
-
-    if let Some(font_match) = finder.find_nerd_font() {
-        info!(
-            "Nerd Font (fontconfig): {} ({})",
-            font_match.family,
-            font_match.path.display()
-        );
-        return load_font_file(&font_match.path).ok();
-    }
-
-    None
-}
-
-/// Find Nerd Font path (for config generation)
-#[allow(dead_code)]
-pub fn find_nerd_font_path() -> Option<String> {
+/// Find Nerd Font path + face index (mmap'd by the caller).
+pub fn nerd_font_face() -> Option<(PathBuf, i32)> {
     let finder = FontFinder::new().ok()?;
     let font_match = finder.find_nerd_font()?;
-    Some(font_match.path.to_string_lossy().to_string())
+    info!(
+        "Nerd Font (fontconfig): {} ({}, face {})",
+        font_match.family,
+        font_match.path.display(),
+        font_match.index
+    );
+    Some((font_match.path, font_match.index))
 }
