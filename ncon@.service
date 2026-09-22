@@ -45,8 +45,12 @@ RestartSec=1
 
 LimitNOFILE=65535
 
-# DRM/KMS + VT control, plus SETUID/SETGID so the login child can switch user
-CapabilityBoundingSet=CAP_SYS_TTY_CONFIG CAP_SYS_ADMIN CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_DAC_OVERRIDE CAP_AUDIT_WRITE CAP_CHOWN CAP_FOWNER
+# DRM/KMS + VT control. Deliberately *no* CapabilityBoundingSet here: the
+# bounding set is inherited by every process in the terminal (login → shell →
+# whatever the user runs), and the kernel refuses to exec a binary whose file
+# capabilities are not a subset of it — btop, kwin_wayland, ksgrd_network_helper
+# and friends fail with EPERM inside ncon. A terminal emulator has to stay a
+# normal environment for its children, so we only add the ambient cap we need.
 AmbientCapabilities=CAP_SYS_TTY_CONFIG
 
 [Install]
