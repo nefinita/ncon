@@ -198,22 +198,55 @@ impl Pty {
                 // If running as root (uid=0), use /bin/login for authentication
                 // Otherwise, spawn user's shell directly
                 if unsafe { libc::getuid() } == 0 {
-                    // Running as root (e.g., systemd service) - require login
-                    // Disable login timeout — ncon acts as a getty replacement,
-                    // so the login prompt should persist indefinitely.
-                    std::env::set_var("LOGIN_TIMEOUT", "0");
-                    let login = match std::ffi::CString::new("/bin/login") {
+                    // Running as root (e.g., systemd service) - use agetty as the
+                    // login prompt. Note: /bin/login honors LOGIN_TIMEOUT from
+                    // /etc/login.defs (the env var is ignored), so with nobody at
+                    // the console it exited every 60s, taking ncon down in a
+                    // restart loop. agetty's username prompt has no timeout by
+                    // design (same as systemd's getty@.service).
+                    let agetty = match std::ffi::CString::new("/usr/bin/agetty") {
                         Ok(s) => s,
                         Err(_) => std::process::exit(1),
                     };
-                    let argv0 = match std::ffi::CString::new("login") {
+                    let argv0 = match std::ffi::CString::new("agetty") {
                         Ok(s) => s,
                         Err(_) => std::process::exit(1),
                     };
-                    match nix::unistd::execvp(&login, &[&argv0]) {
+                    let arg_noissue = match std::ffi::CString::new("--noissue") {
+                        Ok(s) => s,
+                        Err(_) => std::process::exit(1),
+                    };
+                    let arg_noclear = match std::ffi::CString::new("--noclear") {
+                        Ok(s) => s,
+                        Err(_) => std::process::exit(1),
+                    };
+                    let arg_noreset = match std::ffi::CString::new("--noreset") {
+                        Ok(s) => s,
+                        Err(_) => std::process::exit(1),
+                    };
+                    let arg_dash = match std::ffi::CString::new("-") {
+                        Ok(s) => s,
+                        Err(_) => std::process::exit(1),
+                    };
+                    let term = std::env::var("TERM").unwrap_or_else(|_| "linux".to_string());
+                    let arg_term = match std::ffi::CString::new(term) {
+                        Ok(s) => s,
+                        Err(_) => std::process::exit(1),
+                    };
+                    match nix::unistd::execvp(
+                        &agetty,
+                        &[
+                            &argv0,
+                            &arg_noissue,
+                            &arg_noclear,
+                            &arg_noreset,
+                            &arg_dash,
+                            &arg_term,
+                        ],
+                    ) {
                         Ok(infallible) => match infallible {},
                         Err(e) => {
-                            nprint!("ncon: failed to exec /bin/login: {}", e);
+                            nprint!("ncon: failed to exec /usr/bin/agetty: {}", e);
                             std::process::exit(1);
                         }
                     }

@@ -1981,9 +1981,11 @@ Make sure seatd/logind is running and you're on an active VT."
             if let Some(issue) = terminal::pty::read_issue(&tty_name) {
                 let term = tab_mgr.active_terminal_mut();
                 // Process issue text through terminal to display it.
-                term.process_output(issue.as_bytes());
-                // Ensure cursor is at column 0 for login prompt.
-                term.process_output(b"\r\n");
+                // Trim trailing newlines: agetty prints its own newline before
+                // the login prompt, so keeping them would leave blank lines
+                // between the issue and the prompt.
+                let issue_trimmed = issue.trim_end_matches(['\r', '\n']);
+                term.process_output(issue_trimmed.as_bytes());
                 info!("Displayed /etc/issue for {}", tty_name);
             }
         }
