@@ -12,8 +12,15 @@
 #
 # The unit holds its VT in VT_PROCESS mode (SIGUSR1=acquire, SIGUSR2=release),
 # so it releases the DRM master while switched away and re-acquires on return.
-# `Alias=autovt@.service` makes systemd-logind treat ncon as the login prompt
-# for the VTs it is enabled on (same mechanism kmsconvt@.service uses).
+#
+# VT handling follows kmsconvt@.service: ncon waits until its VT is the active
+# one instead of giving up, and if it cannot run at all the VT falls back to a
+# plain getty login prompt rather than staying dark.
+#
+# `Alias=autovt@.service` is the on-demand hook systemd-logind uses for "start
+# a console on this freshly activated VT", but it only takes effect once
+# /etc/systemd/system/autovt@.service points at ncon@.service (distributions
+# usually point that link at getty@.service). See scripts/install-system.sh.
 
 [Unit]
 Description=ncon terminal emulator on %I
@@ -22,7 +29,13 @@ After=systemd-user-sessions.service plymouth-quit-wait.service
 After=rc-local.service
 Before=getty@%i.service getty.target
 Conflicts=getty@%i.service kmsconvt@%i.service
+# Same safety net as kmsconvt@.service: if ncon cannot run (or keeps exiting
+# cleanly until the start limit trips), give this VT a real login prompt.
+OnFailure=getty@%i.service
 ConditionPathExists=/dev/%I
+# Belt against a hypothetical "exits immediately with status 0" loop.
+StartLimitIntervalSec=60
+StartLimitBurst=10
 
 [Service]
 Type=simple
@@ -39,8 +52,12 @@ TTYVHangup=yes
 TTYVTDisallocate=yes
 UtmpIdentifier=%I
 
-# Back to a login prompt after logout, and after crashes
-Restart=always
+# Restart only after a *clean* exit, which for ncon means "the user logged
+# out" — that is what brings the login prompt back (kmscon keeps a session
+# manager alive for this, ncon does not). A crash never loops: the unit goes
+# to failed and OnFailure= above starts getty on this VT instead, exactly like
+# kmsconvt@.service.
+Restart=on-success
 RestartSec=1
 
 LimitNOFILE=65535

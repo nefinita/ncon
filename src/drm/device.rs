@@ -479,7 +479,12 @@ impl VtSwitcher {
     ///
     /// This blocks SIGUSR1/SIGUSR2 and sets up signalfd to receive them.
     /// VT_SETMODE is called to enable process-controlled switching.
-    pub fn new() -> Result<Self> {
+    ///
+    /// Waits until the target VT is the active one (like kmscon with
+    /// `--switchvt` off). Returns `Ok(None)` when a shutdown was requested
+    /// while waiting — nothing has been initialized yet, so the caller should
+    /// exit successfully rather than report a failure.
+    pub fn new() -> Result<Option<Self>> {
         // Get VT number from systemd instance or stdin (TTYPath)
         let target_vt = get_target_vt()
             .ok_or_else(|| anyhow!("Cannot determine VT from stdin - not running on a VT?"))?;
@@ -519,28 +524,28 @@ impl VtSwitcher {
         // are delivered outside signalfd (should be rare, but it's safer).
         setup_vt_signal_handlers();
 
-        // Wait for VT to become active.
-        // Use a polling loop instead of VT_WAITACTIVE so signals can stop the service.
-        // VT_WAITACTIVE can be uninterruptible when signals are handled with SA_RESTART.
-        // Timeout after 10 seconds to prevent indefinite blocking.
+        // Wait for the VT to become active.
+        //
+        // A console service must not fail just because its VT is not the
+        // foreground one: `ncon@tty2` starts at boot while the desktop owns
+        // tty1, and it should simply wait until someone switches to tty2 —
+        // this is what kmscon does with `--switchvt` off. Bounding the wait
+        // (we used to give up after 10s) put systemd into a restart loop, and
+        // the wait plus restart delay happened to be longer than the default
+        // start-limit window, so the loop was never rate-limited.
+        //
+        // Polling instead of a blocking VT_WAITACTIVE keeps the wait
+        // interruptible, so `systemctl stop` returns promptly.
         info!("Waiting for VT{} to become active...", target_vt);
-        let vt_wait_start = std::time::Instant::now();
-        const VT_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
-        let vt_wait_success = loop {
+        loop {
             if shutdown_requested() {
                 info!(
                     "Shutdown signal received while waiting for VT{}, exiting",
                     target_vt
                 );
-                break false;
-            }
-            if vt_wait_start.elapsed() >= VT_WAIT_TIMEOUT {
-                warn!(
-                    "Timed out waiting for VT{} to become active ({}s)",
-                    target_vt,
-                    VT_WAIT_TIMEOUT.as_secs()
-                );
-                break false;
+                unsafe { libc::close(tty_fd) };
+                old_sigmask.thread_set_mask().ok();
+                return Ok(None);
             }
             #[repr(C)]
             struct VtStat {
@@ -555,15 +560,9 @@ impl VtSwitcher {
             };
             let ret = unsafe { libc::ioctl(tty_fd, VT_GETSTATE, &mut stat) };
             if ret >= 0 && stat.v_active == target_vt {
-                break true;
+                break;
             }
             std::thread::sleep(Duration::from_millis(100));
-        };
-
-        if !vt_wait_success {
-            unsafe { libc::close(tty_fd) };
-            old_sigmask.thread_set_mask().ok();
-            return Err(anyhow!("VT_WAITACTIVE interrupted or failed"));
         }
         info!("VT{} is now active", target_vt);
 
@@ -652,14 +651,14 @@ impl VtSwitcher {
             unsafe { libc::ioctl(tty_fd, KDSETMODE, KD_TEXT) };
         }
 
-        Ok(Self {
+        Ok(Some(Self {
             tty_fd,
             target_vt,
             signal_fd,
             active: is_active,
             old_sigmask,
             original_kd_mode,
-        })
+        }))
     }
 
     /// Get VT number from stdin

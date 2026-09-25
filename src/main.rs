@@ -1496,8 +1496,18 @@ Make sure seatd/logind is running and you're on an active VT."
     #[cfg(target_os = "linux")]
     let mut vt_switcher = if !use_seatd {
         // VtSwitcher sets up process-controlled VT switching via VT_SETMODE
-        // The kernel sends SIGUSR1/SIGUSR2 signals for VT switch requests
-        Some(drm::VtSwitcher::new().context("Failed to initialize VT switcher")?)
+        // The kernel sends SIGUSR1/SIGUSR2 signals for VT switch requests.
+        //
+        // `None` means we were asked to shut down before our VT became active
+        // (e.g. `systemctl stop` on a VT that never came to the foreground):
+        // nothing was initialized, so exit successfully.
+        match drm::VtSwitcher::new().context("Failed to initialize VT switcher")? {
+            Some(switcher) => Some(switcher),
+            None => {
+                info!("Shutdown requested before the target VT became active, exiting");
+                return Ok(());
+            }
+        }
     } else {
         None
     };

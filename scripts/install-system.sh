@@ -16,6 +16,18 @@
 #   sudo systemctl disable --now ncon@tty1 && sudo systemctl enable --now getty@tty1
 #   sudo systemctl disable --now getty@tty2
 #   sudo systemctl enable --now kmsconvt@tty2 kmsconvt@tty3 kmsconvt@tty4 kmsconvt@tty5 kmsconvt@tty6
+#
+# On-demand consoles (optional, kmscon-style):
+#   ncon@.service declares `Alias=autovt@.service`, which is what
+#   systemd-logind starts when a VT without a session is switched to. That
+#   alias only takes effect once /etc/systemd/system/autovt@.service points at
+#   ncon@.service — distributions usually point it at getty@.service, so
+#   enabling ncon@$vt alone does not override it. To let logind spawn ncon on
+#   every freshly activated VT:
+#     sudo rm /etc/systemd/system/autovt@.service
+#     sudo ln -s /usr/lib/systemd/system/ncon@.service /etc/systemd/system/autovt@.service
+#     sudo systemctl daemon-reload
+#   (Undo with: sudo ln -sf /usr/lib/systemd/system/getty@.service /etc/systemd/system/autovt@.service)
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
