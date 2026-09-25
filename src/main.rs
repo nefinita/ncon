@@ -1944,13 +1944,35 @@ Make sure seatd/logind is running and you're on an active VT."
     };
 
     info!("PTY fork...");
-    let init_term = terminal::Terminal::with_scrollback_env(
-        grid_cols,
-        grid_rows,
-        cfg.terminal.scrollback_lines,
-        &cfg.terminal.term_env,
-        &extra_env,
-    )
+    // `sudo ncon` from a user's own shell: open *that user's* shell rather than
+    // spawning agetty, which would ask for a second login (and would need the
+    // DBUS address to be smuggled through /etc/profile.d). A root login on a VT
+    // (no SUDO_UID) still gets the agetty prompt, and the systemd unit path
+    // (`ncon@ttyN.service`) is unaffected.
+    let sudo_uid = std::env::var("SUDO_UID")
+        .ok()
+        .and_then(|uid| uid.parse::<u32>().ok())
+        .filter(|uid| *uid != 0);
+    if let Some(uid) = sudo_uid {
+        info!("SUDO_UID={} → spawning that user's shell", uid);
+    }
+    let init_term = match sudo_uid {
+        Some(uid) => terminal::Terminal::with_scrollback_as_user(
+            grid_cols,
+            grid_rows,
+            cfg.terminal.scrollback_lines,
+            &cfg.terminal.term_env,
+            &extra_env,
+            uid,
+        ),
+        None => terminal::Terminal::with_scrollback_env(
+            grid_cols,
+            grid_rows,
+            cfg.terminal.scrollback_lines,
+            &cfg.terminal.term_env,
+            &extra_env,
+        ),
+    }
     .context("Failed to initialize terminal")?;
 
     // Wrap terminal in TabManager (pane/tab abstraction)

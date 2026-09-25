@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 # Install ncon as the system console on tty1 and hand tty2 to a plain getty.
 #
-# usage: sudo ./scripts/install-system.sh [--test-tty8]
+# usage: sudo ./scripts/install-system.sh [--manual] [--test-tty8] [--force-config]
+#
+# Modes:
+#   default     ncon@tty1 runs as a systemd service (boxed console on tty1),
+#               tty2 gets a plain getty.
+#   --manual    No ncon service is enabled: every VT keeps its getty, and you
+#               start ncon yourself from a login shell by typing `ncon`
+#               (or `sudo ncon`, which then opens your own shell rather than
+#               asking for a second login). Exiting that shell returns you to
+#               the getty prompt.
 #
 # What it does:
 #   1. installs target/release/ncon to /usr/local/bin/ncon
 #   2. installs ncon@.service to /etc/systemd/system/
 #   3. seeds /etc/ncon/config.toml (copying /etc/bcon/config.toml if present)
 #   4. disables kmscon autostart on tty2..6 (and removes stale autovt aliases)
-#   5. enables ncon@tty1 (does NOT start it now; the running desktop may own tty1)
-#   6. enables getty@tty2
+#   5. enables the console: ncon@tty1 (default) or getty@tty1..6 (--manual)
+#   6. default mode: enables getty@tty2
 #   7. optional --test-tty8: smoke-test the unit on the free tty8, then switch back
 #
 # Rollback:
@@ -35,11 +44,13 @@ BIN_SRC="$REPO/target/release/ncon"
 UNIT_SRC="$REPO/ncon@.service"
 TEST_TTY8=0
 FORCE_CONFIG=0
+MANUAL=0
 for arg in "$@"; do
     case "$arg" in
         --test-tty8) TEST_TTY8=1 ;;
         --force-config) FORCE_CONFIG=1 ;;
-        -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+        --manual) MANUAL=1 ;;
+        -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
         *) echo "unknown option: $arg"; exit 1 ;;
     esac
 done
@@ -105,14 +116,24 @@ for vt in tty2 tty3 tty4 tty5 tty6; do
 done
 systemctl daemon-reload
 
-echo "== 5/7 tty1 -> ncon"
-systemctl disable --now getty@tty1 >/dev/null 2>&1 || true
-systemctl enable ncon@tty1 2>&1 | sed 's/^/   /'
-echo "   (not started now — the current session may still own tty1)"
-echo "   start it manually after leaving the desktop: sudo systemctl start ncon@tty1"
+if [ "$MANUAL" -eq 1 ]; then
+    echo "== 5/6 manual mode: getty on tty1..6, start ncon from a login shell"
+    systemctl disable --now ncon@tty1 ncon@tty2 >/dev/null 2>&1 || true
+    for vt in tty1 tty2 tty3 tty4 tty5 tty6; do
+        systemctl enable "getty@$vt" 2>&1 | sed 's/^/   /'
+    done
+    echo "   log in and run:  ncon          (or 'sudo ncon' to open your own shell)"
+    echo "   exiting that shell returns you to the getty prompt"
+else
+    echo "== 5/7 tty1 -> ncon"
+    systemctl disable --now getty@tty1 >/dev/null 2>&1 || true
+    systemctl enable ncon@tty1 2>&1 | sed 's/^/   /'
+    echo "   (not started now — the current session may still own tty1)"
+    echo "   start it manually after leaving the desktop: sudo systemctl start ncon@tty1"
 
-echo "== 6/7 tty2 -> getty"
-systemctl enable --now getty@tty2 2>&1 | sed 's/^/   /'
+    echo "== 6/7 tty2 -> getty"
+    systemctl enable --now getty@tty2 2>&1 | sed 's/^/   /'
+fi
 
 echo "== 7/7 kmscon units left enabled-check"
 for vt in tty2 tty3 tty4 tty5 tty6; do
@@ -140,9 +161,18 @@ fi
 
 echo
 echo "== summary"
-for unit in ncon@tty1 getty@tty1 getty@tty2 kmsconvt@tty2 kmsconvt@tty3 kmsconvt@tty4 kmsconvt@tty5 kmsconvt@tty6; do
+units="ncon@tty1 getty@tty1 getty@tty2"
+if [ "$MANUAL" -eq 1 ]; then
+    units="getty@tty1 getty@tty2 getty@tty3 ncon@tty1 ncon@tty2"
+fi
+for unit in $units kmsconvt@tty2 kmsconvt@tty3 kmsconvt@tty4 kmsconvt@tty5 kmsconvt@tty6; do
     printf '   %-16s %s\n' "$unit" "$(systemctl is-enabled "$unit" 2>&1)"
 done
 echo
-echo "ncon@tty1 starts on next boot (Ctrl+Alt+F1). tty2 is a plain getty."
-echo "Reboot to activate, or: sudo systemctl start ncon@tty1"
+if [ "$MANUAL" -eq 1 ]; then
+    echo "Manual mode: every VT boots to getty. Log in and type 'ncon'; exiting it"
+    echo "returns you to the getty prompt. Reboot (or chvt to a VT) to activate."
+else
+    echo "ncon@tty1 starts on next boot (Ctrl+Alt+F1). tty2 is a plain getty."
+    echo "Reboot to activate, or: sudo systemctl start ncon@tty1"
+fi
