@@ -2658,6 +2658,7 @@ impl Grid {
             // the line the app was writing to and desynced its next update.
             let copy_cols = old_cols.min(new_cols);
             let drop_top = self.rows.saturating_sub(new_rows);
+            let fill_top = new_rows.saturating_sub(self.rows);
             let keep_scrollback = self.alternate_screen.is_none();
 
             if drop_top > 0 && keep_scrollback {
@@ -2677,12 +2678,45 @@ impl Grid {
                 }
             }
 
+            // Growing back pulls the newest scrollback rows on top again, so the
+            // bottom stays anchored and the view is restored: opening/closing the
+            // tab bar then becomes a visual no-op for running apps.
+            let pull = if keep_scrollback {
+                fill_top.min(self.scrollback.len())
+            } else {
+                0
+            };
+            let mut pulled: Vec<(Vec<Cell>, bool)> = Vec::with_capacity(pull);
+            for _ in 0..pull {
+                let Some(row) = self.scrollback.pop_back() else {
+                    break;
+                };
+                let wrapped = self.scrollback_wrapped.pop_back().unwrap_or(false);
+                pulled.push((row, wrapped));
+            }
+            let top_offset = pulled.len();
+
             let mut new_cells = vec![Cell::default(); new_cols * new_rows];
-            let copy_rows = self.rows.saturating_sub(drop_top).min(new_rows);
+            let mut new_wrapped = vec![false; new_rows];
+
+            for (i, (row, wrapped)) in pulled.iter().rev().enumerate() {
+                let dst_start = i * new_cols;
+                let copy_len = row.len().min(new_cols);
+                if dst_start + copy_len > new_cells.len() {
+                    break;
+                }
+                new_cells[dst_start..dst_start + copy_len].clone_from_slice(&row[..copy_len]);
+                new_wrapped[i] = *wrapped;
+            }
+
+            let copy_rows = self
+                .rows
+                .saturating_sub(drop_top)
+                .min(new_rows.saturating_sub(top_offset));
 
             for row in 0..copy_rows {
                 let src_start = (row + drop_top) * old_cols;
-                let dst_start = row * new_cols;
+                let dst_start = (row + top_offset) * new_cols;
                 if src_start + copy_cols > self.cells.len()
                     || dst_start + copy_cols > new_cells.len()
                 {
@@ -2690,24 +2724,24 @@ impl Grid {
                 }
                 new_cells[dst_start..dst_start + copy_cols]
                     .clone_from_slice(&self.cells[src_start..src_start + copy_cols]);
-            }
-
-            // Wrap flags move with their rows (read ahead of the write index).
-            for row in 0..copy_rows {
-                self.wrapped_lines[row] =
-                    self.wrapped_lines.get(row + drop_top).copied().unwrap_or(false);
+                new_wrapped[row + top_offset] = self
+                    .wrapped_lines
+                    .get(row + drop_top)
+                    .copied()
+                    .unwrap_or(false);
             }
 
             self.cells = new_cells;
+            self.wrapped_lines = new_wrapped;
             self.cols = new_cols;
             self.rows = new_rows;
 
-            // Resize wrapped_lines
-            self.wrapped_lines.resize(new_rows, false);
-
             // Move the cursor with the content: a plain clamp below would leave
             // a cursor that was not sitting on the bottom row one line too low.
-            self.cursor_row = self.cursor_row.saturating_sub(drop_top);
+            self.cursor_row = self
+                .cursor_row
+                .saturating_sub(drop_top)
+                .saturating_add(top_offset);
         }
 
         // Keep cursor position within new size
@@ -3037,9 +3071,36 @@ mod tests {
         assert_eq!(g.scrollback_len(), 1, "the top line scrolls off");
     }
 
-    /// Growing by rows keeps the existing content in place (no spurious shift).
+    /// Growing back pulls the scrolled-off rows on top again, so the view is
+    /// restored and the running app never notices the tab bar appear/disappear.
     #[test]
-    fn row_grow_keeps_the_content_in_place() {
+    fn shrink_then_grow_restores_the_view() {
+        let mut g = Grid::with_scrollback(4, 3, 100);
+        for (row, text) in ["aa", "bb", "cc"].iter().enumerate() {
+            g.cursor_row = row;
+            g.cursor_col = 0;
+            for ch in text.chars() {
+                g.put_char(ch);
+            }
+        }
+        g.cursor_row = 2;
+        g.cursor_col = 2;
+
+        g.resize(4, 2); // tab bar appears
+        assert_eq!(g.cell(0, 0).grapheme.as_str(), "b");
+        assert_eq!(g.cursor_row, 1);
+
+        g.resize(4, 3); // tab bar disappears again
+        assert_eq!(g.cell(0, 0).grapheme.as_str(), "a", "top row comes back");
+        assert_eq!(g.cell(1, 0).grapheme.as_str(), "b");
+        assert_eq!(g.cell(2, 0).grapheme.as_str(), "c");
+        assert_eq!(g.cursor_row, 2, "cursor is back at the bottom");
+        assert_eq!(g.scrollback_len(), 0);
+    }
+
+    /// A grow with nothing in scrollback keeps the content at the top.
+    #[test]
+    fn grow_without_scrollback_keeps_the_content_at_the_top() {
         let mut g = Grid::with_scrollback(4, 2, 100);
         g.cursor_row = 0;
         g.cursor_col = 0;
