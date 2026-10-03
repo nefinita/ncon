@@ -3059,14 +3059,20 @@ Make sure seatd/logind is running and you're on an active VT."
                 if kb_new_tab.matches(ctrl, shift, alt, raw.keycode, keysym) {
                     let logged_uid = term.logged_in_uid();
                     let _ = term;
+                    // Size the new terminal to the pane rect it will actually
+                    // get, not to the full-screen grid: with the tab bar
+                    // visible the rect is one row shorter, and a taller grid
+                    // would draw its last row over the tab bar while the app
+                    // inside believes it has that extra row.
+                    let (new_cols, new_rows) = available_rect.grid_size(cell_w, cell_h);
                     let new_term = if let Some(uid) = logged_uid {
                         terminal::Terminal::with_scrollback_as_user(
-                            grid_cols, grid_rows,
+                            new_cols, new_rows,
                             cfg.terminal.scrollback_lines, &cfg.terminal.term_env, &extra_env, uid,
                         )
                     } else {
                         terminal::Terminal::with_scrollback_env(
-                            grid_cols, grid_rows,
+                            new_cols, new_rows,
                             cfg.terminal.scrollback_lines, &cfg.terminal.term_env, &extra_env,
                         )
                     };
@@ -3077,6 +3083,8 @@ Make sure seatd/logind is running and you're on an active VT."
                         new_term.notifications_enabled = cfg.notifications.enabled;
                         new_term.allow_kitty_remote = cfg.security.allow_kitty_remote;
                         tab_mgr.new_tab(new_term, available_rect);
+                        // Same normalisation the split path does (new_term_setup).
+                        tab_mgr.resize_terminals_to_rects(cell_w, cell_h);
                     }
                     needs_redraw = true;
                     continue 'main_loop;

@@ -2649,12 +2649,39 @@ impl Grid {
             self.reflow_resize(new_cols, new_rows);
         } else {
             // === Column count unchanged or alternate screen: simple resize ===
-            let mut new_cells = vec![Cell::default(); new_cols * new_rows];
-            let copy_rows = self.rows.min(new_rows);
+            //
+            // Anchor the *bottom*, exactly like reflow_resize does: when the
+            // screen loses rows, the newest line — usually the one an app is
+            // updating in place (yay/pacman progress bars) — has to stay
+            // visible. The old code copied rows from the top and dropped the
+            // tail, so the tab bar appearing/disappearing (1 <-> 2 tabs) deleted
+            // the line the app was writing to and desynced its next update.
             let copy_cols = old_cols.min(new_cols);
+            let drop_top = self.rows.saturating_sub(new_rows);
+            let keep_scrollback = self.alternate_screen.is_none();
+
+            if drop_top > 0 && keep_scrollback {
+                for row in 0..drop_top.min(self.rows) {
+                    let start = row * old_cols;
+                    if start + old_cols > self.cells.len() {
+                        break;
+                    }
+                    self.scrollback
+                        .push_back(self.cells[start..start + old_cols].to_vec());
+                    self.scrollback_wrapped
+                        .push_back(self.wrapped_lines.get(row).copied().unwrap_or(false));
+                }
+                while self.scrollback.len() > self.max_scrollback {
+                    self.scrollback.pop_front();
+                    self.scrollback_wrapped.pop_front();
+                }
+            }
+
+            let mut new_cells = vec![Cell::default(); new_cols * new_rows];
+            let copy_rows = self.rows.saturating_sub(drop_top).min(new_rows);
 
             for row in 0..copy_rows {
-                let src_start = row * old_cols;
+                let src_start = (row + drop_top) * old_cols;
                 let dst_start = row * new_cols;
                 if src_start + copy_cols > self.cells.len()
                     || dst_start + copy_cols > new_cells.len()
@@ -2665,12 +2692,22 @@ impl Grid {
                     .clone_from_slice(&self.cells[src_start..src_start + copy_cols]);
             }
 
+            // Wrap flags move with their rows (read ahead of the write index).
+            for row in 0..copy_rows {
+                self.wrapped_lines[row] =
+                    self.wrapped_lines.get(row + drop_top).copied().unwrap_or(false);
+            }
+
             self.cells = new_cells;
             self.cols = new_cols;
             self.rows = new_rows;
 
             // Resize wrapped_lines
             self.wrapped_lines.resize(new_rows, false);
+
+            // Move the cursor with the content: a plain clamp below would leave
+            // a cursor that was not sitting on the bottom row one line too low.
+            self.cursor_row = self.cursor_row.saturating_sub(drop_top);
         }
 
         // Keep cursor position within new size
@@ -2969,6 +3006,54 @@ mod tests {
 
     fn make_grid() -> Grid {
         Grid::with_scrollback(100, 40, 1000)
+    }
+
+    // ---- row-only resize keeps the bottom line ----
+
+    /// A row shrink must keep the *newest* line visible. Apps that update
+    /// their last line in place (yay/pacman progress) desync if it is deleted,
+    /// which is what happened when the tab bar appeared and resized every
+    /// terminal by one row.
+    #[test]
+    fn row_shrink_keeps_the_bottom_line() {
+        let mut g = Grid::with_scrollback(4, 3, 100);
+        for (row, text) in ["aa", "bb", "cc"].iter().enumerate() {
+            g.cursor_row = row;
+            g.cursor_col = 0;
+            for ch in text.chars() {
+                g.put_char(ch);
+            }
+        }
+        // Cursor sits on the last row, like a progress bar being rewritten.
+        g.cursor_row = 2;
+        g.cursor_col = 2;
+
+        g.resize(4, 2);
+
+        assert_eq!(g.cell(1, 0).grapheme.as_str(), "c", "newest line must survive");
+        assert_eq!(g.cell(1, 1).grapheme.as_str(), "c");
+        assert_eq!(g.cell(0, 0).grapheme.as_str(), "b", "content shifts up");
+        assert_eq!(g.cursor_row, 1, "cursor follows the content");
+        assert_eq!(g.scrollback_len(), 1, "the top line scrolls off");
+    }
+
+    /// Growing by rows keeps the existing content in place (no spurious shift).
+    #[test]
+    fn row_grow_keeps_the_content_in_place() {
+        let mut g = Grid::with_scrollback(4, 2, 100);
+        g.cursor_row = 0;
+        g.cursor_col = 0;
+        g.put_char('x');
+        g.cursor_row = 1;
+        g.cursor_col = 0;
+        g.put_char('y');
+
+        g.resize(4, 3);
+
+        assert_eq!(g.cell(0, 0).grapheme.as_str(), "x");
+        assert_eq!(g.cell(1, 0).grapheme.as_str(), "y");
+        assert_eq!(g.cursor_row, 1);
+        assert_eq!(g.scrollback_len(), 0);
     }
 
     // ---- place_image cursor advancement ----

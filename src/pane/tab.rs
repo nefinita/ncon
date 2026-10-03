@@ -345,10 +345,7 @@ impl TabManager {
         let pane_ids: Vec<PaneId> = tab.panes.keys().copied().collect();
         for pid in pane_ids {
             if let Some(pane) = tab.panes.get_mut(&pid) {
-                let cols = (pane.rect.width / cell_w).floor() as usize;
-                let rows = (pane.rect.height / cell_h).floor() as usize;
-                let cols = cols.max(1);
-                let rows = rows.max(1);
+                let (cols, rows) = pane.rect.grid_size(cell_w, cell_h);
                 if cols != pane.terminal.grid.cols() || rows != pane.terminal.grid.rows() {
                     pane.terminal.resize(cols, rows);
                 }
