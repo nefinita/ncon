@@ -840,7 +840,31 @@ impl Terminal {
     /// Process PTY output and update Grid
     ///
     /// Returns: number of bytes read (0 if no data)
+    ///
+    /// While the user is looking at history (`scroll_offset > 0`), the view is
+    /// kept anchored to the same content: new output grows the scrollback, so
+    /// the offset grows with it instead of drifting towards the live view.
     pub fn process_pty_output(&mut self) -> Result<usize> {
+        let scrollback_before = self.grid.scrollback_len();
+
+        let read = self.process_pty_output_inner();
+
+        if self.scroll_offset > 0 {
+            let grew = self.grid.scrollback_len().saturating_sub(scrollback_before);
+            if grew > 0 {
+                self.scroll_offset =
+                    (self.scroll_offset + grew).min(self.grid.scrollback_len());
+                self.grid.mark_all_dirty();
+            }
+        }
+
+        read
+    }
+
+    /// Process PTY output and update Grid
+    ///
+    /// Returns: number of bytes read (0 if no data)
+    fn process_pty_output_inner(&mut self) -> Result<usize> {
         let n = self.pty.read(&mut self.read_buf)?;
         if n == 0 {
             return Ok(0);
@@ -1832,7 +1856,14 @@ impl Terminal {
     }
 
     /// Write data to PTY (for keyboard input forwarding)
-    pub fn write_to_pty(&self, data: &[u8]) -> Result<usize> {
+    ///
+    /// Typing while looking at history returns to the live view, like every
+    /// other terminal: new *output* must not do that (it would undo the user's
+    /// scroll), but input means the user is working again.
+    pub fn write_to_pty(&mut self, data: &[u8]) -> Result<usize> {
+        if self.scroll_offset != 0 {
+            self.scroll_to_bottom();
+        }
         self.pty.write(data)
     }
 

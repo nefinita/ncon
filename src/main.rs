@@ -3870,10 +3870,16 @@ Make sure seatd/logind is running and you're on an active VT."
                 }
             }
 
-            // Return to live position on new output
-            term.scroll_to_bottom();
-            // Clear selection on new output
-            term.selection = None;
+            // New output must NOT yank the view back to the bottom: that made
+            // scrolling useless in busy sessions (every prompt redraw snapped
+            // the user back — very visible after `conda activate`, where each
+            // keystroke redraws the zsh prompt). The scroll position stays
+            // anchored to the same content instead (Terminal::process_pty_output)
+            // and typing returns to the live view (Terminal::write_to_pty).
+            // A selection is only cleared while the user is in the live view.
+            if term.scroll_offset == 0 {
+                term.selection = None;
+            }
 
             // Start flash if bell notification
             if term.grid.bell_triggered {
