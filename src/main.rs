@@ -1933,9 +1933,10 @@ Make sure seatd/logind is running and you're on an active VT."
 
     // Pass DBUS_SESSION_BUS_ADDRESS to child process.
     // For non-root: shell is exec'd directly, so extra_env works.
-    // For root/systemd: /bin/login calls clearenv(), so this is lost —
-    // but /etc/profile.d/ncon-dbus.sh (written by ensure_ime_environment)
-    // provides the address to login shells instead.
+    // For root/systemd: /bin/login calls clearenv(), so this is lost (the IME
+    // section below has the isolated-instance fallback for that case).
+    // Note: /etc/profile.d/ncon-login-env.sh (written by terminal::pty on
+    // start) restores the *locale* for login shells, which login() also drops.
     let dbus_addr = input::ime::dbus_address();
     let extra_env: Vec<(&str, &str)> = if let Some(ref addr) = dbus_addr {
         vec![("DBUS_SESSION_BUS_ADDRESS", addr.as_str())]

@@ -12,6 +12,45 @@ use nix::sys::wait::{waitpid, WaitPidFlag};
 use nix::unistd::{ForkResult, Pid};
 use std::io;
 use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::unix::fs::PermissionsExt;
+/// `/etc/profile.d/ncon-login-env.sh`, written on start (best effort).
+///
+/// ncon's root/console path spawns `agetty` → `login(1)`, and login calls
+/// `clearenv()`; PAM's `pam_env` then only applies `/etc/environment`, which
+/// usually carries no locale. The resulting VT shell runs in the C locale, so
+/// programs compute UTF-8/wide-character widths byte-wise and their output
+/// misaligns (long package names and yay/pacman progress bars are the usual
+/// victims). Only fill in what is missing, so explicit settings always win.
+const LOGIN_ENV_HELPER: &str = r#"# Written by ncon (regenerated on start; see src/terminal/pty.rs).
+# login(1) clears the environment and pam_env only reads /etc/environment, so a
+# VT login shell can end up with no locale at all (C locale -> UTF-8 width bugs,
+# misaligned output from programs like yay). Restore the system locale, but only
+# when nothing set one explicitly.
+if [ -z "${LANG:-}" ] && [ -r /etc/locale.conf ]; then
+    LANG=$(sed -n 's/^[[:space:]]*LANG=//p' /etc/locale.conf | head -n 1)
+    [ -n "$LANG" ] && export LANG
+fi
+"#;
+
+/// Write the profile.d helper if needed (idempotent, once per process).
+fn ensure_login_env_helper() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        const PATH: &str = "/etc/profile.d/ncon-login-env.sh";
+        if std::fs::read_to_string(PATH).is_ok_and(|existing| existing == LOGIN_ENV_HELPER) {
+            return;
+        }
+        match std::fs::write(PATH, LOGIN_ENV_HELPER) {
+            Ok(()) => {
+                let _ = std::fs::set_permissions(PATH, std::fs::Permissions::from_mode(0o644));
+                log::info!("Wrote {} (locale for login sessions)", PATH);
+            }
+            // Not root (or read-only /etc): the direct-fork path already has a
+            // full environment, so this is only needed for the login path.
+            Err(e) => log::debug!("Cannot write {}: {}", PATH, e),
+        }
+    });
+}
 
 /// PTY management structure
 pub struct Pty {
@@ -171,6 +210,8 @@ impl Pty {
         term_env: &str,
         extra_env: &[(&str, &str)],
     ) -> Result<Self> {
+        ensure_login_env_helper();
+
         let winsize = Winsize {
             ws_row: rows,
             ws_col: cols,
@@ -228,8 +269,12 @@ impl Pty {
                         Ok(s) => s,
                         Err(_) => std::process::exit(1),
                     };
-                    let term = std::env::var("TERM").unwrap_or_else(|_| "linux".to_string());
-                    let arg_term = match std::ffi::CString::new(term) {
+                    // The login program gets the TERM ncon was configured with.
+                    // Reading ncon's own $TERM is not useful: the systemd unit
+                    // runs with a bare environment, so that fell back to "linux"
+                    // and the login shell advertised a VT terminal even though
+                    // ncon emulates xterm-256color.
+                    let arg_term = match std::ffi::CString::new(term_env) {
                         Ok(s) => s,
                         Err(_) => std::process::exit(1),
                     };
@@ -858,4 +903,35 @@ fn get_domainname() -> Option<String> {
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty() && s != "(none)")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The helper is sourced by whatever login shell the user runs; a syntax
+    /// error there would break every login. Let the shell itself check it (no
+    /// root needed: read/write in the temp dir).
+    #[test]
+    fn login_env_helper_is_valid_posix_sh() {
+        let path = std::env::temp_dir().join(format!(
+            "ncon-login-env-{}.sh",
+            std::process::id()
+        ));
+        std::fs::write(&path, LOGIN_ENV_HELPER).expect("write temp script");
+        let status = std::process::Command::new("/bin/sh")
+            .arg("-n")
+            .arg(&path)
+            .status()
+            .expect("/bin/sh -n");
+        let _ = std::fs::remove_file(&path);
+        assert!(status.success(), "profile.d helper must be valid POSIX sh");
+    }
+
+    /// Guard against the regression this file was added for: the helper must
+    /// never override an explicitly set locale.
+    #[test]
+    fn login_env_helper_only_fills_missing_lang() {
+        assert!(LOGIN_ENV_HELPER.contains(r#"[ -z "${LANG:-}" ]"#));
+    }
 }
