@@ -48,8 +48,13 @@ use super::{INDICES_PER_QUAD, VERTICES_PER_QUAD};
 
 /// Per-vertex data: position(2) + UV(2) = 4 floats
 const VERTEX_FLOATS: usize = 4;
-/// Maximum images per batch
-const MAX_IMAGES: usize = 64;
+/// Maximum images per batch.
+///
+/// This also sizes the vertex/index buffers, so it must stay within the u16
+/// index range: 16384 quads × 4 vertices = 65536 vertices (last index 65535).
+/// Placeholder grids draw one quad per cell, so a handful of inline images can
+/// easily exceed a small limit; draws beyond the queue size are dropped.
+const MAX_IMAGES: usize = 16384;
 /// Maximum cached textures (LRU eviction when exceeded)
 const MAX_CACHED_TEXTURES: usize = 128;
 
