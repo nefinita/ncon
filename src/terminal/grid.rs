@@ -1466,9 +1466,10 @@ impl Grid {
                 }
                 // Clear all wrapped flags
                 self.wrapped_lines.fill(false);
-                // Clear non-overlay image placements
-                // Overlay images (C=1) are only removed by explicit Kitty delete command
-                self.image_placements.retain(|p| p.overlay);
+                // Clear non-overlay image placements. Overlay images (C=1) and
+                // virtual (unicode placeholder) placements have no physical
+                // position; they are only removed by an explicit Kitty delete.
+                self.image_placements.retain(|p| p.overlay || p.is_virtual);
                 // Mark all rows dirty
                 self.mark_all_dirty();
             }
@@ -1544,7 +1545,7 @@ impl Grid {
     fn remove_images_at_row(&mut self, row: usize) {
         let abs_row = row as u64 + self.scrollback_total;
         self.image_placements.retain(|p| {
-            if p.overlay {
+            if p.overlay || p.is_virtual {
                 return true;
             }
             let img_end = p.row + p.height_cells.saturating_sub(1) as u64;
@@ -1561,7 +1562,7 @@ impl Grid {
         let abs_row = row as u64 + self.scrollback_total;
         let col_end = col.saturating_add(width);
         self.image_placements.retain(|p| {
-            if p.overlay || p.z < 0 {
+            if p.overlay || p.z < 0 || p.is_virtual {
                 return true;
             }
             let img_row_end = p.row + p.height_cells as u64;
@@ -1642,7 +1643,7 @@ impl Grid {
             // Prune images beyond max_scrollback
             let min_visible_abs = self.scrollback_total.saturating_sub(self.max_scrollback as u64);
             self.image_placements.retain(|p| {
-                if p.overlay {
+                if p.overlay || p.is_virtual {
                     return true;
                 }
                 p.row + p.height_cells as u64 > min_visible_abs
@@ -1652,7 +1653,7 @@ impl Grid {
             let abs_top = top as u64 + self.scrollback_total;
             let abs_bottom = bottom as u64 + self.scrollback_total;
             self.image_placements.retain_mut(|p| {
-                if p.overlay {
+                if p.overlay || p.is_virtual {
                     return true;
                 }
                 if p.row >= abs_top && p.row <= abs_bottom {
@@ -2029,7 +2030,7 @@ impl Grid {
         let abs_top = top as u64 + self.scrollback_total;
         let abs_bottom = bottom as u64 + self.scrollback_total;
         self.image_placements.retain_mut(|p| {
-            if p.overlay {
+            if p.overlay || p.is_virtual {
                 return true;
             }
             if p.row >= abs_top && p.row <= abs_bottom {
@@ -2533,7 +2534,7 @@ impl Grid {
                 let new_row_end = new_row + height_cells as u64;
                 let mut reuse_pos: Option<(u64, usize)> = None;
                 self.image_placements.retain(|p| {
-                    if p.overlay || p.z != z_index {
+                    if p.overlay || p.is_virtual || p.z != z_index {
                         return true;
                     }
                     let p_row_end = p.row + p.height_cells as u64;
@@ -2557,7 +2558,7 @@ impl Grid {
                 let new_row_end = new_row + height_cells as u64;
                 let new_col_end = new_col + width_cells;
                 self.image_placements.retain(|p| {
-                    if p.overlay || p.z != z_index {
+                    if p.overlay || p.is_virtual || p.z != z_index {
                         return true;
                     }
                     let p_row_end = p.row + p.height_cells as u64;
@@ -2625,7 +2626,7 @@ impl Grid {
         // Delete placements that are completely outside the visible area
         let screen_bottom_abs = self.scrollback_total + self.rows as u64;
         self.image_placements.retain(|p| {
-            if p.overlay {
+            if p.overlay || p.is_virtual {
                 return true;
             }
             p.row < screen_bottom_abs
