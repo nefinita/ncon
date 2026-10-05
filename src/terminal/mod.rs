@@ -740,6 +740,38 @@ impl Terminal {
         self.clipboard_path = path.to_string();
     }
 
+    /// Mark every row containing a Unicode placeholder cell (U+10EEEE) whose
+    /// foreground color encodes `image_id` as dirty.
+    ///
+    /// Placeholder tiles are only drawn while their rows are being rendered;
+    /// when image data arrives after the rows were already drawn (single-pane
+    /// keeps a persistent FBO), the rows must be rendered again.
+    pub fn mark_placeholder_rows_dirty(&mut self, image_id: u32) {
+        let mut rows: Vec<usize> = Vec::new();
+        for row in 0..self.grid.rows() {
+            let referenced = (0..self.grid.cols()).any(|col| {
+                let cell = self.display_cell(row, col);
+                if cell.grapheme.chars().next() != Some(grid::IMAGE_PLACEHOLDER_CHAR) {
+                    return false;
+                }
+                let id = match cell.fg {
+                    grid::Color::Rgb(r, g, b) => {
+                        ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+                    }
+                    grid::Color::Indexed(index) => index as u32,
+                    _ => 0,
+                };
+                id == image_id
+            });
+            if referenced {
+                rows.push(row);
+            }
+        }
+        for row in rows {
+            self.grid.mark_dirty(row);
+        }
+    }
+
     /// Get the home directory of the logged-in user (child process owner)
     ///
     /// While `login` is still waiting for credentials the PTY child is root,
@@ -1510,6 +1542,11 @@ impl Terminal {
                     self.grid.image_placements.retain(|p| p.id != img_id);
                 }
                 self.images.insert(term_img);
+
+                // Image data is now available: redraw the rows that hold
+                // Unicode placeholders referencing it (they may have been
+                // rendered before the transmission arrived).
+                self.mark_placeholder_rows_dirty(img_id);
 
                 if action == KittyAction::TransmitAndDisplay {
                     let superseded = self.grid.place_image(

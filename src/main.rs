@@ -4183,6 +4183,19 @@ Make sure seatd/logind is running and you're on an active VT."
         // When overlays are active, we must render all rows for correctness
         let partial_render = is_active && !has_overlays && !overlays_just_cleared && !grid.is_all_dirty();
 
+        // Invalidate GPU textures for images whose data changed (new
+        // transmissions, animation frames) before any pass queues draws.
+        // Doing this after the text pass would remove the texture that the
+        // pass just uploaded for its placeholder tiles, dropping the draw at
+        // flush time and leaving stale cells behind.
+        let pane_num = render_pane_id.0;
+        for dirty_id in &term.dirty_image_ids {
+            let key = gpu::image_key(pane_num, *dirty_id);
+            if image_renderer.has_texture(key) {
+                image_renderer.remove_texture(gl, key);
+            }
+        }
+
         // === Pass 1: Background color (run-length encoded) ===
         // Selection is blended into background here (not in separate pass)
         // This ensures LCD compositing uses exact same color as rendered background
@@ -5662,13 +5675,8 @@ Make sure seatd/logind is running and you're on an active VT."
         // to avoid cursor trails in cached content
 
         // === Image texture management ===
-        let pane_num = render_pane_id.0;
-        for dirty_id in &term.dirty_image_ids {
-            let key = gpu::image_key(pane_num, *dirty_id);
-            if image_renderer.has_texture(key) {
-                image_renderer.remove_texture(gl, key);
-            }
-        }
+        // (dirty-image textures were already invalidated before the passes
+        // above; re-uploads happen on demand or in the loop below)
         if !grid.image_placements.is_empty() {
             trace!(
                 "Image render: {} placements for pane {:?}",
