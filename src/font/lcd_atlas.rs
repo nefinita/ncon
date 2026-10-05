@@ -500,13 +500,15 @@ impl LcdGlyphAtlas {
             }
         }
 
-        // Cache all 3 phases if subpixel phase is enabled
+        // Cache phase 0 eagerly; phases 1/2 are 1/3-pixel variants that the
+        // grid draw path never requests (cells land on integer pixels). Caching
+        // all three tripled the atlas cost — with CJK (a glyph costs ~780px per
+        // phase) that filled the 2048x2048 atlas after ~1.8k distinct
+        // characters, after which glyphs were silently dropped and text
+        // rendered blank. ensure_glyph_phased() still rasterizes any phase on
+        // demand.
         if self.subpixel_positioning {
-            for phase in [
-                SubpixelPhase::Phase0,
-                SubpixelPhase::Phase1,
-                SubpixelPhase::Phase2,
-            ] {
+            for phase in [SubpixelPhase::Phase0] {
                 let key = PhasedGlyphKey {
                     ch,
                     phase: phase as u8,
@@ -548,6 +550,40 @@ impl LcdGlyphAtlas {
         }
     }
 
+    /// Clear every glyph cache and the shelf allocator, keeping the texture.
+    ///
+    /// Used when the atlas is exhausted (long sessions with lots of distinct
+    /// glyphs) and by `resize()`. Glyphs are re-rasterized on demand from the
+    /// next frame on, so the only cost is re-uploading the atlas texture.
+    fn reset_atlas(&mut self) {
+        self.glyphs.clear();
+        self.phased_glyphs.clear();
+        self.glyph_id_map.clear();
+        self.bold_glyphs.clear();
+        self.bold_phased_glyphs.clear();
+        self.italic_glyphs.clear();
+        self.italic_phased_glyphs.clear();
+        self.bold_italic_glyphs.clear();
+        self.bold_italic_phased_glyphs.clear();
+        self.atlas_data.fill(0);
+
+        // Restore the 2x2 white pixel used for rectangle drawing.
+        let aw = self.atlas_width as usize;
+        for y in 0..2 {
+            for x in 0..2 {
+                let idx = (y * aw + x) * 3;
+                self.atlas_data[idx] = 255;
+                self.atlas_data[idx + 1] = 255;
+                self.atlas_data[idx + 2] = 255;
+            }
+        }
+
+        self.cursor_x = 4;
+        self.cursor_y = 0;
+        self.row_height = 0;
+        self.dirty = true;
+    }
+
     fn pack_glyph(&mut self, glyph: &FtGlyph, label: &str) -> Option<GlyphInfo> {
         let bw = glyph.width;
         let bh = glyph.height;
@@ -565,8 +601,13 @@ impl LcdGlyphAtlas {
         }
 
         if self.cursor_y + bh > self.atlas_height {
-            warn!("LCD atlas full: {}", label);
-            return None;
+            // Shelf exhausted: recycle the atlas instead of dropping the glyph.
+            // Dropping silently removed characters once a session had seen
+            // enough distinct glyphs; every visible glyph is re-rasterized on
+            // demand by ensure_glyph() from the next frame on, so recycling
+            // only costs a texture re-upload.
+            info!("LCD atlas full ({}), recycling", label);
+            self.reset_atlas();
         }
 
         let x0 = self.cursor_x;
@@ -1012,33 +1053,8 @@ impl LcdGlyphAtlas {
 
         self.font_size = new_size_u32;
 
-        // Clear atlas
-        self.glyphs.clear();
-        self.phased_glyphs.clear();
-        self.glyph_id_map.clear();
-        self.bold_glyphs.clear();
-        self.bold_phased_glyphs.clear();
-        self.italic_glyphs.clear();
-        self.italic_phased_glyphs.clear();
-        self.bold_italic_glyphs.clear();
-        self.bold_italic_phased_glyphs.clear();
-        self.atlas_data.fill(0);
-
-        // Replace white pixel
-        let aw = self.atlas_width as usize;
-        for y in 0..2 {
-            for x in 0..2 {
-                let idx = (y * aw + x) * 3;
-                self.atlas_data[idx] = 255;
-                self.atlas_data[idx + 1] = 255;
-                self.atlas_data[idx + 2] = 255;
-            }
-        }
-
-        // Reset packing cursor
-        self.cursor_x = 4;
-        self.cursor_y = 0;
-        self.row_height = 0;
+        // Clear the atlas and all caches (shared with the "atlas full" recycle).
+        self.reset_atlas();
 
         // Preload ASCII
         for ch in (0x20u8..=0x7Eu8).map(|c| c as char) {
