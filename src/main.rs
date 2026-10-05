@@ -4301,6 +4301,20 @@ Make sure seatd/logind is running and you're on an active VT."
                     }
                 }
 
+                // Unicode placeholder cells are painted by the image renderer
+                // (tiles are queued from the text pass and flushed before the
+                // background runs are drawn). Skip the default background here
+                // so the run does not cover the tile.
+                if first_ch == terminal::grid::IMAGE_PLACEHOLDER_CHAR {
+                    if matches!(cell.bg, terminal::grid::Color::Default)
+                        && !cell.attrs.contains(terminal::grid::CellAttrs::INVERSE)
+                    {
+                        bg[3] = 0.0;
+                    } else {
+                        bg[3] = 0.5; // Semi-transparent so the tile shows through
+                    }
+                }
+
                 if let Some((start, run_color)) = run_start {
                     if bg == run_color {
                         // Continue the run
