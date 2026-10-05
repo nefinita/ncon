@@ -5672,10 +5672,15 @@ Make sure seatd/logind is running and you're on an active VT."
             }
         }
 
+        // Unicode-placeholder tiles are queued into the image renderer by the
+        // text pass above; draw them before begin() clears the queue for the
+        // z < 0 pass below, otherwise they would never be flushed.
+        image_renderer.flush(gl, screen_w, screen_h);
+
         // === Z-order pass 1: Images with z < 0 (below text) ===
         image_renderer.begin();
         for placement in &grid.image_placements {
-            if placement.z >= 0 {
+            if placement.z >= 0 || placement.is_virtual {
                 continue;
             }
             if term.images.get(placement.id).is_none() {
@@ -5721,7 +5726,7 @@ Make sure seatd/logind is running and you're on an active VT."
         // === Z-order pass 2: Images with z >= 0 (above text) ===
         image_renderer.begin();
         for placement in &grid.image_placements {
-            if placement.z < 0 {
+            if placement.z < 0 || placement.is_virtual {
                 continue;
             }
             if term.images.get(placement.id).is_none() {
