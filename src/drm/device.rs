@@ -386,6 +386,43 @@ impl Device {
         Ok(())
     }
 
+    /// Set the connector's DPMS state (monitor standby) — the KMS equivalent of
+    /// `xset dpms force off`.
+    ///
+    /// Requires DRM master, which we hold while our VT is active. The mode and
+    /// framebuffer are untouched, so waking up resumes exactly where we left off
+    /// (only a full redraw is needed).
+    pub fn set_dpms(&self, connector_handle: connector::Handle, on: bool) -> Result<()> {
+        let props = self.get_properties(connector_handle)?;
+        let prop = props
+            .iter()
+            .find(|(handle, _)| {
+                self.get_property(**handle)
+                    .map(|info| info.name().to_bytes() == b"DPMS")
+                    .unwrap_or(false)
+            })
+            .map(|(handle, _)| *handle)
+            .ok_or_else(|| anyhow!("connector has no DPMS property (atomic driver?)"))?;
+
+        // The DPMS property is an enum (DRM_MODE_DPMS_ON/STANDBY/SUSPEND/OFF);
+        // pick the entry by name so no ABI constant is hardcoded.
+        let target = if on { "On" } else { "Off" };
+        let value = match self.get_property(prop)?.value_type() {
+            drm::control::property::ValueType::Enum(enums) => {
+                let (_, entries) = enums.values();
+                entries
+                    .iter()
+                    .find(|entry| entry.name().to_bytes() == target.as_bytes())
+                    .map(|entry| entry.value())
+            }
+            _ => None,
+        }
+        .ok_or_else(|| anyhow!("DPMS property has no \"{}\" value", target))?;
+
+        self.set_property(connector_handle, prop, value)?;
+        Ok(())
+    }
+
     /// Acquire DRM master privileges (after VT switch back)
     pub fn set_master(&self) -> Result<()> {
         let ret = unsafe { libc::ioctl(self.file.as_raw_fd(), drm_ioctl::DRM_IOCTL_SET_MASTER) };

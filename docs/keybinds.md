@@ -28,6 +28,7 @@ English | **[Japanese](keybinds.ja.md)**
 | Close Tab | `Ctrl+Shift+Q` | same | same | Close active tab |
 | Next Tab | `Ctrl+Shift+PageDown` | same | same | Switch to next tab |
 | Prev Tab | `Ctrl+Shift+PageUp` | same | same | Switch to previous tab |
+| Screen Off | `Ctrl+Shift+O` | same | same | Turn the screen off (DPMS standby); any input wakes it |
 
 ## Custom Keybinds
 

@@ -286,6 +286,10 @@ pub struct DisplayOutputConfig {
     /// Auto-switch to external monitor when connected
     /// When true, automatically switch display on hotplug connect
     pub auto_switch: bool,
+    /// Turn the screen off (DPMS standby) after this many seconds without input.
+    /// 0 disables it. Any key or mouse event turns it back on, and it is always
+    /// restored when ncon releases the VT or exits.
+    pub blank_after_secs: u64,
 }
 
 impl Default for DisplayOutputConfig {
@@ -293,6 +297,7 @@ impl Default for DisplayOutputConfig {
         Self {
             prefer_external: true,
             auto_switch: true,
+            blank_after_secs: 600,
         }
     }
 }
@@ -398,6 +403,9 @@ pub struct KeybindConfig {
     /// Previous tab (default: "ctrl+pageup")
     #[serde(deserialize_with = "deserialize_keybind")]
     pub prev_tab: Vec<String>,
+    /// Turn the screen off (DPMS standby). Any input turns it back on.
+    /// (default: "ctrl+shift+o")
+    pub screen_off: Vec<String>,
 }
 
 /// Keybind deserializer: accepts string or array
@@ -747,6 +755,7 @@ impl KeybindConfig {
             close_tab: pane.close_tab,
             next_tab: pane.next_tab,
             prev_tab: pane.prev_tab,
+            screen_off: vec!["ctrl+shift+o".to_string()],
         }
     }
 
@@ -786,6 +795,7 @@ impl KeybindConfig {
             close_tab: pane.close_tab,
             next_tab: pane.next_tab,
             prev_tab: pane.prev_tab,
+            screen_off: vec!["ctrl+shift+o".to_string()],
         }
     }
 
@@ -823,6 +833,7 @@ impl KeybindConfig {
             close_tab: pane.close_tab,
             next_tab: pane.next_tab,
             prev_tab: pane.prev_tab,
+            screen_off: vec!["ctrl+shift+o".to_string()],
         }
     }
 }
@@ -1388,6 +1399,9 @@ ime_disabled_apps = ["vim", "nvim", "vi", "vimdiff", "emacs", "nano", "less", "m
 # [display]
 # prefer_external = true    # Prefer external monitors (HDMI/DP) over internal (eDP)
 # auto_switch = true        # Auto-switch to external monitor on hotplug connect
+# blank_after_secs = 600    # Turn the screen off (DPMS standby) after N seconds
+#                           # without input; 0 disables. Any key or mouse event
+#                           # wakes it, and ncon restores it when leaving the VT.
 #
 # Connector priority (when prefer_external = true):
 #   HDMI > DisplayPort > DVI > VGA > eDP (internal)

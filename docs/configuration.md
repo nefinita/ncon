@@ -109,6 +109,8 @@ speed = 1.0                  # Cursor speed multiplier (default: 1.0)
 [display]
 prefer_external = true       # Prefer external monitors (HDMI/DP) over internal
 auto_switch = true           # Auto-switch on hotplug connect/disconnect
+blank_after_secs = 600       # Turn the screen off (DPMS standby) after 600s without
+                             # input; 0 disables. Any key or mouse event wakes it.
 
 [drm]
 device = "auto"              # "auto" probes each GPU and selects one with a connected display

@@ -107,6 +107,8 @@ speed = 1.0                  # カーソル速度倍率 (デフォルト: 1.0、
 [display]
 prefer_external = true       # 外部モニター優先 (HDMI/DP > 内蔵)
 auto_switch = true           # ホットプラグ時に自動切り替え
+blank_after_secs = 600       # 無入力 600 秒で画面オフ（DPMS 待機）。0 で無効。
+                             # キーかマウスの入力で復帰します。
 
 [drm]
 device = "auto"              # "auto" は各 GPU を probe して接続中のディスプレイを自動選択

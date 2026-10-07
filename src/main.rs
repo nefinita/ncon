@@ -1383,6 +1383,7 @@ fn main() -> Result<()> {
     let mut kb_scroll_up = config::ParsedKeybinds::parse(&cfg.keybinds.scroll_up);
     let mut kb_scroll_down = config::ParsedKeybinds::parse(&cfg.keybinds.scroll_down);
     let mut kb_reset_terminal = config::ParsedKeybinds::parse(&cfg.keybinds.reset_terminal);
+    let mut kb_screen_off = config::ParsedKeybinds::parse(&cfg.keybinds.screen_off);
     let mut kb_notification_panel = config::ParsedKeybinds::parse(&cfg.keybinds.notification_panel);
     let mut kb_notification_mute = config::ParsedKeybinds::parse(&cfg.keybinds.notification_mute);
     // Pane/tab keybinds
@@ -2198,6 +2199,13 @@ Make sure seatd/logind is running and you're on an active VT."
     // Screenshot flag
     let mut take_screenshot = false;
 
+    // Screen blanking (DPMS). `blank_after` is the idle timeout (0 disables),
+    // `last_activity` is refreshed by any key or mouse event, and `screen_off`
+    // tracks whether we blanked the screen ourselves.
+    let blank_after = Duration::from_secs(cfg.display.blank_after_secs);
+    let mut last_activity = std::time::Instant::now();
+    let mut screen_off = false;
+
     // Notification panel state
     let mut notification_panel_open = false;
     let mut notification_panel_scroll: usize = 0;
@@ -2243,6 +2251,16 @@ Make sure seatd/logind is running and you're on an active VT."
     let config_cursor_opacity = cfg.appearance.cursor_opacity;
 
     'main_loop: loop {
+        // Idle blanking: DPMS off after `blank_after` without input. Output does
+        // not count as activity; any key or mouse event wakes the screen again.
+        if !screen_off && !blank_after.is_zero() && last_activity.elapsed() >= blank_after {
+            screen_off = true;
+            match drm_device.set_dpms(display_config.connector_handle, false) {
+                Ok(()) => info!("Screen off (DPMS), {}s idle", blank_after.as_secs()),
+                Err(e) => log::warn!("DPMS off failed: {}", e),
+            }
+        }
+
         // Adjust available rect for tab bar (when 2+ tabs, reserve space at bottom)
         let tab_bar_visible = tab_mgr.tab_count() > 1;
         available_rect = pane::PaneRect::new(
@@ -2448,6 +2466,17 @@ Make sure seatd/logind is running and you're on an active VT."
                         // Kernel requests us to release the VT.
                         info!("VT release requested");
 
+                        // Never leave another VT (or the desktop) with a dark
+                        // monitor: restore DPMS before handing the VT over.
+                        if screen_off {
+                            screen_off = false;
+                            if let Err(e) =
+                                drm_device.set_dpms(display_config.connector_handle, true)
+                            {
+                                log::warn!("DPMS on failed: {}", e);
+                            }
+                        }
+
                         // Send focus out event to terminal applications.
                         if let Err(e) = term.send_focus_event(false) {
                             log::debug!("Failed to send FocusOut event: {}", e);
@@ -2473,6 +2502,7 @@ Make sure seatd/logind is running and you're on an active VT."
                     drm::VtEvent::Acquire => {
                         // Kernel grants us the VT (or resume from suspend).
                         info!("VT acquire");
+                        last_activity = std::time::Instant::now();
 
                         // Resume input devices.
                         if let Some(ref mut evdev) = evdev_keyboard {
@@ -2609,6 +2639,7 @@ Make sure seatd/logind is running and you're on an active VT."
                 kb_scroll_up = config::ParsedKeybinds::parse(&new_cfg.keybinds.scroll_up);
                 kb_scroll_down = config::ParsedKeybinds::parse(&new_cfg.keybinds.scroll_down);
                 kb_reset_terminal = config::ParsedKeybinds::parse(&new_cfg.keybinds.reset_terminal);
+                kb_screen_off = config::ParsedKeybinds::parse(&new_cfg.keybinds.screen_off);
                 kb_notification_panel =
                     config::ParsedKeybinds::parse(&new_cfg.keybinds.notification_panel);
                 kb_notification_mute =
@@ -2779,6 +2810,33 @@ Make sure seatd/logind is running and you're on an active VT."
                 let ctrl = raw.mods_ctrl;
                 let alt = raw.mods_alt;
                 let keysym = raw.keysym;
+
+                // Any key wakes a blanked screen. The key that turned it off must
+                // not immediately turn it back on, and the waking stroke is
+                // swallowed so it does not reach the application.
+                if screen_off && !kb_screen_off.matches(ctrl, shift, alt, raw.keycode, keysym) {
+                    screen_off = false;
+                    last_activity = std::time::Instant::now();
+                    if let Err(e) = drm_device.set_dpms(display_config.connector_handle, true) {
+                        log::warn!("DPMS on failed: {}", e);
+                    }
+                    term.mark_all_dirty();
+                    needs_redraw = true;
+                    continue;
+                }
+
+                // Turn the screen off (DPMS); any input brings it back.
+                if kb_screen_off.matches(ctrl, shift, alt, raw.keycode, keysym) {
+                    if !screen_off {
+                        screen_off = true;
+                        last_activity = std::time::Instant::now();
+                        match drm_device.set_dpms(display_config.connector_handle, false) {
+                            Ok(()) => info!("Screen off (DPMS)"),
+                            Err(e) => log::warn!("DPMS off failed: {}", e),
+                        }
+                    }
+                    continue;
+                }
 
                 // Scroll up (configurable)
                 if kb_scroll_up.matches(ctrl, shift, alt, raw.keycode, keysym) {
@@ -3369,6 +3427,17 @@ Make sure seatd/logind is running and you're on an active VT."
 
             // Mouse event processing
             for mouse in &mouse_events {
+                // Mouse activity counts as activity and wakes a blanked screen.
+                last_activity = std::time::Instant::now();
+                if screen_off {
+                    screen_off = false;
+                    if let Err(e) = drm_device.set_dpms(display_config.connector_handle, true) {
+                        log::warn!("DPMS on failed: {}", e);
+                    }
+                    term.mark_all_dirty();
+                    needs_redraw = true;
+                    continue;
+                }
                 // Notification panel mouse handling (modal)
                 if notification_panel_open {
                     let panel_w = (screen_w as f32 * 0.25).max(250.0).min(450.0);
@@ -7053,6 +7122,11 @@ Make sure seatd/logind is running and you're on an active VT."
     text_renderer.destroy(gl);
     glyph_atlas.destroy(gl);
     emoji_atlas.destroy(gl);
+
+    // Restore the screen before handing the display back.
+    if screen_off {
+        let _ = drm_device.set_dpms(display_config.connector_handle, true);
+    }
 
     // Restore previous mode
     drop(prev_fb);
