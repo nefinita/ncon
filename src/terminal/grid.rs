@@ -658,6 +658,11 @@ pub enum MouseMode {
 struct AlternateScreen {
     cells: Vec<Cell>,
     wrapped_lines: Vec<bool>,
+    /// Geometry the snapshot was taken with. The grid can be resized while the
+    /// alternate screen is active (tab bar appearing/disappearing, font size
+    /// change), so the buffers must be re-fitted on restore.
+    cols: usize,
+    rows: usize,
     cursor_row: usize,
     cursor_col: usize,
     pen: Pen,
@@ -2249,6 +2254,8 @@ impl Grid {
         let saved = AlternateScreen {
             cells: self.cells.clone(),
             wrapped_lines: self.wrapped_lines.clone(),
+            cols: self.cols,
+            rows: self.rows,
             cursor_row: self.cursor_row,
             cursor_col: self.cursor_col,
             pen: self.pen.clone(),
@@ -2279,15 +2286,45 @@ impl Grid {
     }
 
     /// Return to main screen buffer (?1049 reset)
+    /// Re-fit an alternate-screen snapshot into the *current* geometry.
+    ///
+    /// The grid can be resized while the alternate screen is active (tab bar
+    /// appearing/disappearing, font size change), so the saved buffers no longer
+    /// match `cols`/`rows`. Copying them in verbatim left `wrapped_lines` shorter
+    /// than `rows`, and the next ED/EL panicked on the index (grid.rs:1446).
+    fn adopt_screen_snapshot(&mut self, saved: &AlternateScreen) {
+        let mut cells = vec![Cell::default(); self.cols * self.rows];
+        let copy_rows = saved.rows.min(self.rows);
+        let copy_cols = saved.cols.min(self.cols);
+        for row in 0..copy_rows {
+            let src = row * saved.cols;
+            let dst = row * self.cols;
+            if src + copy_cols <= saved.cells.len() && dst + copy_cols <= cells.len() {
+                cells[dst..dst + copy_cols].clone_from_slice(&saved.cells[src..src + copy_cols]);
+            }
+        }
+
+        let mut wrapped = vec![false; self.rows];
+        for (row, flag) in wrapped.iter_mut().enumerate().take(copy_rows) {
+            *flag = saved.wrapped_lines.get(row).copied().unwrap_or(false);
+        }
+
+        self.cells = cells;
+        self.wrapped_lines = wrapped;
+
+        self.cursor_row = saved.cursor_row.min(self.rows.saturating_sub(1));
+        self.cursor_col = saved.cursor_col.min(self.cols.saturating_sub(1));
+        self.scroll_top = saved.scroll_top.min(self.rows.saturating_sub(1));
+        self.scroll_bottom = saved
+            .scroll_bottom
+            .min(self.rows.saturating_sub(1))
+            .max(self.scroll_top);
+    }
+
     pub fn leave_alternate_screen(&mut self) {
         if let Some(saved) = self.alternate_screen.take() {
-            self.cells = saved.cells;
-            self.wrapped_lines = saved.wrapped_lines;
-            self.cursor_row = saved.cursor_row;
-            self.cursor_col = saved.cursor_col;
+            self.adopt_screen_snapshot(&saved);
             self.pen = saved.pen;
-            self.scroll_top = saved.scroll_top;
-            self.scroll_bottom = saved.scroll_bottom;
             self.charset_g0 = saved.charset_g0;
             self.charset_g1 = saved.charset_g1;
             self.active_charset = saved.active_charset;
@@ -2311,6 +2348,8 @@ impl Grid {
         let saved = AlternateScreen {
             cells: self.cells.clone(),
             wrapped_lines: self.wrapped_lines.clone(),
+            cols: self.cols,
+            rows: self.rows,
             cursor_row: self.cursor_row,
             cursor_col: self.cursor_col,
             pen: self.pen.clone(),
@@ -2341,13 +2380,8 @@ impl Grid {
     /// Clears alternate screen before switching back (per xterm spec)
     pub fn leave_alternate_screen_1047(&mut self) {
         if let Some(saved) = self.alternate_screen.take() {
-            self.cells = saved.cells;
-            self.wrapped_lines = saved.wrapped_lines;
-            self.cursor_row = saved.cursor_row;
-            self.cursor_col = saved.cursor_col;
+            self.adopt_screen_snapshot(&saved);
             self.pen = saved.pen;
-            self.scroll_top = saved.scroll_top;
-            self.scroll_bottom = saved.scroll_bottom;
             self.charset_g0 = saved.charset_g0;
             self.charset_g1 = saved.charset_g1;
             self.active_charset = saved.active_charset;
@@ -3118,9 +3152,51 @@ mod tests {
         assert_eq!(g.scrollback_len(), 0);
     }
 
-    // ---- place_image cursor advancement ----
+    // ---- alternate screen across a resize ----
 
+    /// Resizing while the alternate screen is active used to leave the restored
+    /// main screen with `wrapped_lines` shorter than `rows`; the next ED/EL then
+    /// panicked on the row index (grid.rs:1446 — the reported crash).
     #[test]
+    fn alt_screen_restore_survives_a_resize() {
+        let mut g = Grid::with_scrollback(20, 6, 100);
+        g.cursor_row = 1;
+        g.cursor_col = 0;
+        for ch in "hello".chars() {
+            g.put_char(ch);
+        }
+
+        g.enter_alternate_screen();
+        g.cursor_row = 3;
+        g.cursor_col = 0;
+        for ch in "ALT".chars() {
+            g.put_char(ch);
+        }
+
+        // Tab bar appears / font size changes while the app owns the screen.
+        g.resize(20, 5);
+        g.leave_alternate_screen();
+
+        assert_eq!(g.cells.len(), g.cols() * g.rows());
+        assert_eq!(g.wrapped_lines.len(), g.rows());
+        assert!(g.scroll_bottom < g.rows());
+        assert_eq!(
+            g.cell(1, 0).grapheme.as_str(),
+            "h",
+            "main screen content survives"
+        );
+        g.erase_in_display(0); // used to panic on the row index
+
+        // Same for the ?1047 variant, including a column change.
+        g.enter_alternate_screen_1047();
+        g.resize(24, 5);
+        g.leave_alternate_screen_1047();
+        assert_eq!(g.cells.len(), g.cols() * g.rows());
+        assert_eq!(g.wrapped_lines.len(), g.rows());
+        g.erase_in_display(0);
+    }
+
+    // ---- place_image cursor advancement ----    #[test]
     fn place_image_cursor_below_image() {
         let mut g = make_grid();
         g.cursor_row = 0;
