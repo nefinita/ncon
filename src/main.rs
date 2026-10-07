@@ -7075,7 +7075,10 @@ Make sure seatd/logind is running and you're on an active VT."
 
         // Buffer swap (skip during Synchronized Update mode or when VT switched away)
         // CSI ? 2026 h starts buffering, CSI ? 2026 l displays all at once
-        if !term.is_synchronized_update() && drm_master_held {
+        //
+        // Also skip while the screen is blanked: set_crtc() below re-enables the
+        // output, which turned a DPMS-off screen back on at the next redraw.
+        if !term.is_synchronized_update() && drm_master_held && !screen_off {
             // Safety: avoid modesetting when our VT isn't actually active.
             // This prevents stealing the visible console (e.g., tty1 getty).
             if let Some(vt) = target_vt {
