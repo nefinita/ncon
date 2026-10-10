@@ -10,6 +10,7 @@ use log::info;
 use nix::pty::{forkpty, ForkptyResult, Winsize};
 use nix::sys::wait::{waitpid, WaitPidFlag};
 use nix::unistd::{ForkResult, Pid};
+use std::collections::HashMap;
 use std::io;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::fs::PermissionsExt;
@@ -771,28 +772,73 @@ impl Drop for Pty {
     }
 }
 
-/// Read and expand /etc/issue file (like getty does)
+/// Read and expand the issue text the way agetty does.
 ///
-/// Expands the following escape sequences:
-/// - \d  Current date
-/// - \l  TTY name (e.g., tty2)
-/// - \m  Machine architecture
-/// - \n  Hostname (nodename)
-/// - \o  Domain name
-/// - \r  Kernel release
-/// - \s  Kernel name (e.g., Linux)
-/// - \t  Current time
-/// - \v  Kernel version
-/// - \\  Literal backslash
+/// The primary issue file is `/etc/issue`; `.issue` fragments next to it are
+/// appended in version-sort order (agetty's `/etc/issue.d` extension). Since
+/// util-linux 2.41 the same file+directory pair under `/run` and `/usr/lib` is
+/// read as well, which lets a distribution ship a generated message
+/// independently of the host-specific file.
 ///
-/// Returns None if /etc/issue doesn't exist or can't be read.
+/// The content is rendered by [`expand_issue`], so it may use the getty escape
+/// sequences (notably `\r` for the running kernel release and
+/// `\S{PRETTY_NAME}` from `/etc/os-release`).
+///
+/// Returns None when no issue file exists.
 pub fn read_issue(tty_name: &str) -> Option<String> {
-    let content = std::fs::read_to_string("/etc/issue").ok()?;
+    let mut content = String::new();
+
+    for base in ["/etc", "/run", "/usr/lib"] {
+        let file = format!("{}/issue", base);
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            // agetty treats the directory as an extension of the file in the
+            // same location and ignores it when the file is missing.
+            continue;
+        };
+        content.push_str(&text);
+
+        let dir = format!("{}/issue.d", base);
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut fragments: Vec<_> = entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("issue"))
+            .collect();
+        fragments.sort_by(|a, b| {
+            let a = a.file_name().unwrap_or_default().to_string_lossy();
+            let b = b.file_name().unwrap_or_default().to_string_lossy();
+            version_sort_cmp(&a, &b)
+        });
+        for fragment in fragments {
+            if let Ok(text) = std::fs::read_to_string(&fragment) {
+                content.push_str(&text);
+            }
+        }
+    }
+
+    if content.is_empty() {
+        return None;
+    }
     Some(expand_issue(&content, tty_name))
 }
 
-/// Expand /etc/issue escape sequences
+/// Expand the getty escape sequences in issue text.
+///
+/// Supported: `\d` date, `\l` tty line, `\m` machine, `\n` nodename, `\o` NIS
+/// domain, `\r` kernel release, `\s` system name, `\t` time, `\v` kernel
+/// version, `\S` / `\S{VAR}` os-release field, `\\` literal backslash.
 fn expand_issue(content: &str, tty_name: &str) -> String {
+    let os_release = parse_os_release();
+    expand_issue_with(content, tty_name, &os_release)
+}
+
+/// [`expand_issue`] with an injected os-release map (helps testing).
+fn expand_issue_with(
+    content: &str,
+    tty_name: &str,
+    os_release: &HashMap<String, String>,
+) -> String {
     let mut result = String::with_capacity(content.len() * 2);
     let mut chars = content.chars().peekable();
 
@@ -848,6 +894,23 @@ fn expand_issue(content: &str, tty_name: &str) -> String {
                     // Kernel version
                     result.push_str(&version);
                 }
+                Some('S') => {
+                    // os-release field: \S{VARIABLE}, or bare \S for PRETTY_NAME.
+                    let name = if chars.peek() == Some(&'{') {
+                        chars.next();
+                        let mut name = String::new();
+                        for ch in chars.by_ref() {
+                            if ch == '}' {
+                                break;
+                            }
+                            name.push(ch);
+                        }
+                        name
+                    } else {
+                        String::new()
+                    };
+                    push_os_release(&mut result, &name, &sysname, os_release);
+                }
                 Some('\\') => {
                     result.push('\\');
                 }
@@ -866,6 +929,112 @@ fn expand_issue(content: &str, tty_name: &str) -> String {
     }
 
     result
+}
+
+/// Append an os-release value for agetty's `\S{VARIABLE}`.
+///
+/// An empty name (bare `\S`) means PRETTY_NAME, falling back to the system
+/// name. An unknown variable expands to nothing. `ANSI_COLOR` is special-cased
+/// into a real terminal escape sequence, matching agetty.
+fn push_os_release(
+    out: &mut String,
+    name: &str,
+    sysname: &str,
+    os_release: &HashMap<String, String>,
+) {
+    if name.is_empty() {
+        out.push_str(
+            os_release
+                .get("PRETTY_NAME")
+                .map(String::as_str)
+                .unwrap_or(sysname),
+        );
+        return;
+    }
+    match os_release.get(name) {
+        Some(value) if name == "ANSI_COLOR" => {
+            out.push('\x1b');
+            out.push('[');
+            out.push_str(value);
+            out.push('m');
+        }
+        Some(value) => out.push_str(value),
+        None => {}
+    }
+}
+
+/// Parse `/etc/os-release`, falling back to `/usr/lib/os-release`.
+fn parse_os_release() -> HashMap<String, String> {
+    for path in ["/etc/os-release", "/usr/lib/os-release"] {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            return parse_os_release_text(&text);
+        }
+    }
+    HashMap::new()
+}
+
+/// Parse os-release `KEY=value` lines. Values may be single- or double-quoted;
+/// the shell-style escapes the format allows are not interpreted, which is
+/// enough for the fields used in issue files (PRETTY_NAME, ANSI_COLOR, ...).
+fn parse_os_release_text(text: &str) -> HashMap<String, String> {
+    let mut values = HashMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let value = value.trim();
+        let value = value
+            .strip_prefix('"')
+            .and_then(|v| v.strip_suffix('"'))
+            .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
+            .unwrap_or(value);
+        values.insert(key.trim().to_string(), value.to_string());
+    }
+    values
+}
+
+/// Order two `.issue` fragment names the way agetty does (version sort), so
+/// `9-a.issue` sorts before `10-b.issue`.
+fn version_sort_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    let (mut ai, mut bi) = (0usize, 0usize);
+
+    while ai < a.len() && bi < b.len() {
+        if a[ai].is_ascii_digit() && b[bi].is_ascii_digit() {
+            let (a_start, b_start) = (ai, bi);
+            while ai < a.len() && a[ai].is_ascii_digit() {
+                ai += 1;
+            }
+            while bi < b.len() && b[bi].is_ascii_digit() {
+                bi += 1;
+            }
+            let a_run = &a[a_start..ai];
+            let b_run = &b[b_start..bi];
+            // Longer run of significant digits wins ("10" > "9").
+            let a_digits = a_run.iter().skip_while(|&&c| c == b'0').count();
+            let b_digits = b_run.iter().skip_while(|&&c| c == b'0').count();
+            match a_digits.cmp(&b_digits).then_with(|| a_run.cmp(b_run)) {
+                Ordering::Equal => {}
+                other => return other,
+            }
+        } else {
+            match a[ai].cmp(&b[bi]) {
+                Ordering::Equal => {
+                    ai += 1;
+                    bi += 1;
+                }
+                other => return other,
+            }
+        }
+    }
+
+    (a.len() - ai).cmp(&(b.len() - bi))
 }
 
 /// System info from uname()
@@ -933,5 +1102,73 @@ mod tests {
     #[test]
     fn login_env_helper_only_fills_missing_lang() {
         assert!(LOGIN_ENV_HELPER.contains(r#"[ -z "${LANG:-}" ]"#));
+    }
+
+    #[test]
+    fn expand_issue_kernel_release_escape() {
+        let out = expand_issue_with("Arch \\r (\\l)", "tty1", &HashMap::new());
+        assert!(out.starts_with("Arch "), "{out}");
+        assert!(out.ends_with(" (tty1)"), "{out}");
+        // uname -r looks like "7.2.9-arch1-1".
+        assert!(out.contains('-'), "{out}");
+    }
+
+    #[test]
+    fn expand_issue_os_release_pretty_name_and_default() {
+        let mut os = HashMap::new();
+        os.insert("PRETTY_NAME".to_string(), "Arch Linux".to_string());
+        assert_eq!(
+            expand_issue_with("\\S{PRETTY_NAME}", "tty1", &os),
+            "Arch Linux"
+        );
+        // Bare \S means PRETTY_NAME.
+        assert_eq!(expand_issue_with("\\S", "tty1", &os), "Arch Linux");
+    }
+
+    #[test]
+    fn expand_issue_os_release_missing_and_fallback() {
+        let os = HashMap::new();
+        // Unknown variable expands to nothing.
+        assert_eq!(expand_issue_with("[\\S{NOPE}]", "tty1", &os), "[]");
+        // Bare \S with no PRETTY_NAME falls back to the system name.
+        assert_eq!(expand_issue_with("\\S", "tty1", &os), "Linux");
+    }
+
+    #[test]
+    fn expand_issue_os_release_ansi_color() {
+        let mut os = HashMap::new();
+        os.insert("ANSI_COLOR".to_string(), "38;2;23;147;209".to_string());
+        assert_eq!(
+            expand_issue_with("\\S{ANSI_COLOR}", "tty1", &os),
+            "\x1b[38;2;23;147;209m"
+        );
+    }
+
+    #[test]
+    fn os_release_parser_handles_quotes_and_comments() {
+        let text = "# comment\nNAME=Arch\nPRETTY_NAME=\"Arch Linux\"\nID='arch'\n\nEMPTY=\n";
+        let map = parse_os_release_text(text);
+        assert_eq!(map.get("NAME").map(String::as_str), Some("Arch"));
+        assert_eq!(
+            map.get("PRETTY_NAME").map(String::as_str),
+            Some("Arch Linux")
+        );
+        assert_eq!(map.get("ID").map(String::as_str), Some("arch"));
+        assert_eq!(map.get("EMPTY").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn issue_fragments_sort_in_version_order() {
+        let mut names = vec!["10-b.issue", "9-a.issue", "2-c.issue", "README"];
+        names.sort_by(|a, b| version_sort_cmp(a, b));
+        assert_eq!(
+            names,
+            vec!["2-c.issue", "9-a.issue", "10-b.issue", "README"]
+        );
+        // "10-b" < "2-c" byte-wise, but version sort puts 2 first.
+        assert_eq!(
+            version_sort_cmp("2-c.issue", "10-b.issue"),
+            std::cmp::Ordering::Less
+        );
     }
 }
