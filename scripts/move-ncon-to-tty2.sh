@@ -25,9 +25,13 @@
 # interruptible by SIGTERM) until VT2 is actually foreground, like kmscon with
 # --switchvt off. It does not steal the display from the greeter.
 #
-# Started from the tty1 ncon session, stopping ncon@tty1 would tear the session
-# down and kill the script halfway; it detects that and re-executes itself as a
-# transient system unit (systemd-run), which survives the session going away.
+# Stopping ncon@tty1 (or getty@tty2) tears down whatever session runs on that
+# VT, so if the script is started from one of those sessions it would be killed
+# halfway. It detects that and re-executes itself as a transient system unit
+# (systemd-run), which survives the session going away. The detection reads the
+# cgroup and the logind session tty, not `ps -o tty`: inside ncon the shell's
+# controlling terminal is a pts, never "tty1", so the old name check never
+# fired and the script died after the first step.
 #
 # Rollback:
 #   sudo ./scripts/move-ncon-to-tty2.sh --revert
@@ -89,20 +93,52 @@ drop_alias() {
     fi
 }
 
-# Stopping ncon@tty1 kills the shell this script may be running in. Re-exec as
-# a transient system unit so the second half still runs; the unit lives in
-# system.slice, not the login session.
-if (( ! DRY_RUN )) && [[ "${1:-}" != "--inner" ]]; then
-    cur_tty="$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ' || true)"
-    if [[ "$cur_tty" == "tty${SRC_VT}" ]]; then
-        script="$(readlink -f "$0")"
-        log "running on tty${SRC_VT}; re-executing detached so the session can die"
-        if command -v systemd-run >/dev/null 2>&1; then
-            exec systemd-run --unit="ncon-vt-move-$$" --collect --pipe --wait \
-                "$script" --inner "$@"
-        fi
-        log "WARNING: systemd-run not found; continuing inline (may be killed)"
+LOG=/tmp/ncon-vt-move.log
+
+# True when this process lives in a session on one of the VTs we are about to
+# take down (ncon@tty1 / getty@tty2), so it must not run inline.
+needs_detach() {
+    # (a) a child of the ncon service itself
+    if grep -qE 'ncon@tty[0-9]+\.service' /proc/self/cgroup 2>/dev/null; then
+        return 0
     fi
+    # (b) a logind session whose VT is one we manage
+    local scope sid tty
+    scope="$(grep -oE 'session-[0-9]+\.scope' /proc/self/cgroup 2>/dev/null | head -1)"
+    if [[ -n "$scope" ]]; then
+        sid="${scope#session-}"; sid="${sid%.scope}"
+        tty="$(loginctl show-session "$sid" -p TTY --value 2>/dev/null || true)"
+        if [[ "$tty" == "tty${SRC_VT}" || "$tty" == "tty${DST_VT}" ]]; then
+            return 0
+        fi
+    fi
+    # (c) fallback: controlling terminal name
+    tty="$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ' || true)"
+    [[ "$tty" == "tty${SRC_VT}" || "$tty" == "tty${DST_VT}" ]]
+}
+
+# Re-exec as a transient system unit so the rest survives its session ending.
+# Output goes to $LOG (systemd-run's own stdio is not used: if the caller's
+# session dies, a --pipe connection would break and could kill the script).
+if (( ! DRY_RUN )) && [[ "${1:-}" != "--inner" ]] && needs_detach; then
+    script="$(readlink -f "$0")"
+    : >"$LOG"
+    log "this shell is on a VT that will be torn down; re-executing detached"
+    log "  log file: $LOG"
+    log "  follow:   tail -f $LOG   (from another VT or SSH)"
+    if command -v systemd-run >/dev/null 2>&1; then
+        rc=0
+        systemd-run --unit="ncon-vt-move-$$" --collect --wait \
+            "$script" --inner "$@" || rc=$?
+        cat "$LOG" 2>/dev/null || true
+        exit "$rc"
+    fi
+    log "WARNING: systemd-run not found; continuing inline (may be killed)"
+fi
+
+# Detached run: capture everything in $LOG.
+if [[ "${1:-}" == "--inner" ]]; then
+    exec >>"$LOG" 2>&1
 fi
 
 command -v systemctl >/dev/null 2>&1 || {
