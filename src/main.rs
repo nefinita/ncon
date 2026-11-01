@@ -2253,11 +2253,34 @@ Make sure seatd/logind is running and you're on an active VT."
     'main_loop: loop {
         // Idle blanking: DPMS off after `blank_after` without input. Output does
         // not count as activity; any key or mouse event wakes the screen again.
+        //
+        // Only blank while we actually own the display. While our VT is in the
+        // background (or before we ever got DRM master) set_dpms() cannot work,
+        // and latching `screen_off` anyway used to keep the present path disabled
+        // once the VT came back: the screen then stayed frozen until the next
+        // keypress, which is indistinguishable from a hang.
         if !screen_off && !blank_after.is_zero() && last_activity.elapsed() >= blank_after {
-            screen_off = true;
-            match drm_device.set_dpms(display_config.connector_handle, false) {
-                Ok(()) => info!("Screen off (DPMS), {}s idle", blank_after.as_secs()),
-                Err(e) => log::warn!("DPMS off failed: {}", e),
+            let vt_foreground = target_vt.map_or(true, drm::is_vt_active);
+            if drm_master_held && vt_foreground {
+                match drm_device.set_dpms(display_config.connector_handle, false) {
+                    Ok(()) => {
+                        screen_off = true;
+                        info!("Screen off (DPMS), {}s idle", blank_after.as_secs());
+                    }
+                    // The panel is still lit, so keep presenting — otherwise the
+                    // frame would freeze in place. Do not retry every frame:
+                    // arm the timer again and try once more after another idle
+                    // period.
+                    Err(e) => {
+                        log::warn!("DPMS off failed: {}", e);
+                        last_activity = std::time::Instant::now();
+                    }
+                }
+            } else {
+                // Idle time only counts while we are the visible terminal;
+                // otherwise rejoining after a long switch-away would blank on the
+                // very first frame.
+                last_activity = std::time::Instant::now();
             }
         }
 
@@ -2353,6 +2376,17 @@ Make sure seatd/logind is running and you're on an active VT."
                             evdev.suspend();
                         }
 
+                        // Never hand a dark panel to the next VT / display manager.
+                        // (The VT_PROCESS path below does the same on Release.)
+                        if screen_off {
+                            screen_off = false;
+                            if let Err(e) =
+                                drm_device.set_dpms(display_config.connector_handle, true)
+                            {
+                                log::warn!("DPMS on failed: {}", e);
+                            }
+                        }
+
                         // Drop DRM master on Disable so other VTs (e.g., getty@tty1) can render.
                         // With libseat, master is managed by the seat daemon automatically.
                         if drm_master_held && !seatd_manages_drm {
@@ -2419,6 +2453,18 @@ Make sure seatd/logind is running and you're on an active VT."
                         drm_master_held = true;
                         drm_master_ever_held = true;
                         needs_redraw = true;
+
+                        // Rejoining a session must always end with a lit panel and a
+                        // full repaint: the cached frame may predate the switch-away.
+                        if screen_off {
+                            screen_off = false;
+                            if let Err(e) =
+                                drm_device.set_dpms(display_config.connector_handle, true)
+                            {
+                                log::warn!("DPMS on failed: {}", e);
+                            }
+                        }
+                        term.mark_all_dirty();
 
                         // If mode setting was deferred (session wasn't active at startup),
                         // do it now.
@@ -2515,7 +2561,6 @@ Make sure seatd/logind is running and you're on an active VT."
                             } else {
                                 drm_master_held = true;
                                 drm_master_ever_held = true;
-                                needs_redraw = true;
                                 // Restore hardware cursor after VT switch
                                 if let Some(ref hc) = hw_cursor {
                                     hc.show();
@@ -2523,6 +2568,18 @@ Make sure seatd/logind is running and you're on an active VT."
                                 }
                             }
                         }
+                        // Rejoining the VT must always end with a lit panel and a full
+                        // repaint (the cached frame is stale after a DPMS cycle).
+                        if screen_off {
+                            screen_off = false;
+                            if let Err(e) =
+                                drm_device.set_dpms(display_config.connector_handle, true)
+                            {
+                                log::warn!("DPMS on failed: {}", e);
+                            }
+                        }
+                        term.mark_all_dirty();
+                        needs_redraw = true;
                         // Acknowledge acquire.
                         if let Err(e) = vt_switcher.ack_acquire() {
                             log::warn!("Failed to acknowledge VT acquire: {}", e);
@@ -2744,7 +2801,24 @@ Make sure seatd/logind is running and you're on an active VT."
                 match kb.read(&mut key_buf) {
                     Ok(0) => {}
                     Ok(n) => {
-                        let _ = term.write_to_pty(&key_buf[..n]);
+                        // Typing counts as activity even without evdev (otherwise the
+                        // idle timer blanked the screen while the user was working),
+                        // and it must be able to wake the screen: with no evdev this is
+                        // the only input path, so a blanked screen used to stay dark
+                        // forever. The waking stroke is swallowed, as with evdev.
+                        last_activity = std::time::Instant::now();
+                        if screen_off {
+                            screen_off = false;
+                            if let Err(e) =
+                                drm_device.set_dpms(display_config.connector_handle, true)
+                            {
+                                log::warn!("DPMS on failed: {}", e);
+                            }
+                            term.mark_all_dirty();
+                            needs_redraw = true;
+                        } else {
+                            let _ = term.write_to_pty(&key_buf[..n]);
+                        }
                     }
                     Err(e) => {
                         log::warn!("Keyboard read error: {}", e);
@@ -2811,10 +2885,10 @@ Make sure seatd/logind is running and you're on an active VT."
                 let alt = raw.mods_alt;
                 let keysym = raw.keysym;
 
-                // Any key wakes a blanked screen. The key that turned it off must
-                // not immediately turn it back on, and the waking stroke is
-                // swallowed so it does not reach the application.
-                if screen_off && !kb_screen_off.matches(ctrl, shift, alt, raw.keycode, keysym) {
+                // Any key wakes a blanked screen; the waking stroke is swallowed so
+                // it does not reach the application. Ctrl+Shift+O is included, so the
+                // key that blanked the screen also brings it back.
+                if screen_off {
                     screen_off = false;
                     last_activity = std::time::Instant::now();
                     if let Err(e) = drm_device.set_dpms(display_config.connector_handle, true) {
@@ -2825,15 +2899,17 @@ Make sure seatd/logind is running and you're on an active VT."
                     continue;
                 }
 
-                // Turn the screen off (DPMS); any input brings it back.
+                // Blank the screen (DPMS); any input brings it back. Only latch the
+                // state when the panel really went off, so a failed DPMS call cannot
+                // leave us skipping frames in front of a lit screen.
                 if kb_screen_off.matches(ctrl, shift, alt, raw.keycode, keysym) {
-                    if !screen_off {
-                        screen_off = true;
-                        last_activity = std::time::Instant::now();
-                        match drm_device.set_dpms(display_config.connector_handle, false) {
-                            Ok(()) => info!("Screen off (DPMS)"),
-                            Err(e) => log::warn!("DPMS off failed: {}", e),
+                    last_activity = std::time::Instant::now();
+                    match drm_device.set_dpms(display_config.connector_handle, false) {
+                        Ok(()) => {
+                            screen_off = true;
+                            info!("Screen off (DPMS)");
                         }
+                        Err(e) => log::warn!("DPMS off failed: {}", e),
                     }
                     continue;
                 }
