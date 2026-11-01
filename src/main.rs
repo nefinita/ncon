@@ -7159,6 +7159,14 @@ Make sure seatd/logind is running and you're on an active VT."
             // This prevents stealing the visible console (e.g., tty1 getty).
             if let Some(vt) = target_vt {
                 if !drm::is_vt_active(vt) {
+                    // Our VT is not visible right now: skip the flush, but do not
+                    // drop the frame. needs_redraw was already consumed for this
+                    // iteration, so a bare `continue` left the panel on the stale
+                    // frame until some unrelated event happened to ask for another
+                    // redraw. Keep the frame armed and retry, pacing the retry so a
+                    // lingering switch-away cannot spin the main loop.
+                    needs_redraw = true;
+                    std::thread::sleep(Duration::from_millis(4));
                     continue;
                 }
             }
